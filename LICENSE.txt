@@ -1,0 +1,29 @@
+DWATREX SOFTWARE LICENSE AGREEMENT
+
+Copyright (c) 2026 Dwatrex. All rights reserved.
+
+This software is provided for use within your organization. By installing
+or using this software, you agree to the following terms:
+
+1. GRANT OF LICENSE
+   You are granted a non-exclusive license to install and use this
+   software on any number of computers within your organization.
+
+2. DATA OWNERSHIP
+   All data entered into the application is stored locally on your
+   computer in a SQLite database file. You own your data entirely.
+   No data is transmitted to any external server.
+
+3. PRIVACY
+   This software operates fully offline. It does not collect, transmit,
+   or share any personal information or usage data.
+
+4. NO WARRANTY
+   This software is provided "as is" without warranty of any kind,
+   express or implied. Use at your own risk.
+
+5. LIMITATION OF LIABILITY
+   In no event shall the authors be liable for any damages arising
+   from the use of this software.
+
+For support, contact your system administrator.

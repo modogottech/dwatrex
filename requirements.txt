@@ -1,0 +1,2 @@
+# Runtime dependency for Dwatrex. For build/packaging, see requirements-build.txt
+pywebview>=4.0

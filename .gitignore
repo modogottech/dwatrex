@@ -1,0 +1,22 @@
+# Build output
+build/
+dist/
+installer_output/
+*.spec
+version_info.py
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Local database (per-machine data — never commit)
+*.db
+*.db-wal
+*.db-shm
+
+# OS noise
+.DS_Store
+Thumbs.db

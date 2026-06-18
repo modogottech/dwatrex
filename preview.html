@@ -1,0 +1,1649 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DWATREX — Design Preview</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+/* ═══════════════════════════════════════════════════════════
+   DWATREX Design System — "The Kinetic Monolith"
+   Industrial. Authoritative. Precise.
+   ═══════════════════════════════════════════════════════════ */
+
+:root {
+  /* Surface hierarchy — physical stack of materials */
+  --bg:                     #131313;
+  --surface:                #131313;
+  --surface-container-lowest: #0e0e0e;
+  --surface-container-low:  #1c1b1b;
+  --surface-container:      #201f1f;
+  --surface-container-high: #2a2a2a;
+  --surface-container-highest: #353534;
+  --surface-dim:            #131313;
+  --surface-bright:         #393939;
+  --surface-variant:        #353534;
+
+  /* Primary — muted steel blue */
+  --primary:                #b9c7e4;
+  --primary-container:      #0a192f;
+  --on-primary:             #233148;
+  --on-primary-container:   #74829d;
+
+  /* Tertiary — electric orange (action trigger) */
+  --tertiary:               #ffb77d;
+  --tertiary-container:     #2b1300;
+  --on-tertiary:            #4d2600;
+  --on-tertiary-container:  #c56b00;
+
+  /* Text */
+  --on-surface:             #e5e2e1;
+  --on-background:          #e5e2e1;
+  --on-surface-variant:     #c5c6cd;
+
+  /* Semantic */
+  --error:                  #ffb4ab;
+  --error-container:        #93000a;
+  --success:                #81c784;
+  --outline:                #8f9097;
+  --outline-variant:        #44474d;
+
+  /* Radius — architectural, hard-edge */
+  --radius-sm:  0.125rem;
+  --radius:     0.25rem;
+  --radius-lg:  0.5rem;
+  --radius-xl:  0.75rem;
+
+  /* Shadows — tinted, diffused */
+  --shadow:     0 4px 30px rgba(10,25,47,0.06);
+  --shadow-lg:  0 8px 60px rgba(10,25,47,0.08);
+}
+
+/* ═══════ LIGHT THEME ════════════════════════════════════ */
+[data-theme="light"] {
+  --bg:                     #f5f5f5;
+  --surface:                #f5f5f5;
+  --surface-container-lowest: #ffffff;
+  --surface-container-low:  #eeeeee;
+  --surface-container:      #e8e8e8;
+  --surface-container-high: #e0e0e0;
+  --surface-container-highest: #d6d6d6;
+  --surface-dim:            #dcdcdc;
+  --surface-bright:         #f5f5f5;
+  --surface-variant:        #e0e0e0;
+
+  --primary:                #1a3a5c;
+  --primary-container:      #d4e3f5;
+  --on-primary:             #ffffff;
+  --on-primary-container:   #5a6a7e;
+
+  --tertiary:               #c56b00;
+  --tertiary-container:     #fff0e0;
+  --on-tertiary:            #ffffff;
+  --on-tertiary-container:  #994400;
+
+  --on-surface:             #1a1a1a;
+  --on-background:          #1a1a1a;
+  --on-surface-variant:     #444444;
+
+  --error:                  #b3261e;
+  --error-container:        #f9dedc;
+  --success:                #2e7d32;
+  --outline:                #79747e;
+  --outline-variant:        #c4c4c4;
+
+  --shadow:     0 4px 30px rgba(0,0,0,0.06);
+  --shadow-lg:  0 8px 60px rgba(0,0,0,0.08);
+}
+
+/* ═══════ RESET ═══════════════════════════════════════════ */
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: 'Inter', -apple-system, sans-serif;
+  background: var(--bg);
+  color: var(--on-background);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+a { text-decoration: none; color: inherit; }
+table { width: 100%; border-collapse: collapse; }
+input, select, textarea, button { font-family: inherit; }
+.material-symbols-outlined {
+  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+  display: inline-block; vertical-align: middle;
+}
+
+/* ═══════ SCROLLBAR ════════════════════════════════════════ */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--outline-variant); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--outline); }
+
+/* ═══════ LOGIN SCREEN ════════════════════════════════════ */
+.login-screen {
+  min-height: 100vh; display: flex; align-items: center; justify-content: center;
+  background: var(--bg);
+  background-image: radial-gradient(ellipse at 30% 50%, rgba(10,25,47,0.5) 0%, transparent 60%);
+}
+.login-card {
+  background: var(--surface-container-high);
+  border-radius: var(--radius-lg); padding: 3rem; width: 100%; max-width: 420px;
+  box-shadow: var(--shadow-lg);
+}
+.login-logo { text-align: center; margin-bottom: 2.5rem; }
+.login-logo .logo-icon {
+  width: 56px; height: 56px; background: var(--primary-container);
+  border-radius: var(--radius-lg); display: inline-flex; align-items: center; justify-content: center;
+  margin-bottom: 1rem;
+}
+.login-logo .logo-icon .material-symbols-outlined { color: var(--primary); font-size: 28px; }
+.login-logo h1 { font-family: 'Manrope', sans-serif; font-size: 1.8rem; font-weight: 800; color: var(--primary); letter-spacing: -0.02em; }
+.login-logo p { color: var(--outline); font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.2em; font-weight: 600; margin-top: 0.25rem; }
+.login-hint { text-align: center; font-size: 0.75rem; color: var(--outline); margin-top: 1.2rem; }
+
+/* ═══════ FORMS ═══════════════════════════════════════════ */
+.form-group { margin-bottom: 1rem; }
+.form-group label {
+  display: block; font-size: 0.65rem; font-weight: 600; color: var(--on-primary-container);
+  text-transform: uppercase; letter-spacing: 0.15em; margin-bottom: 0.4rem;
+}
+.form-group input, .form-group select, .form-group textarea {
+  width: 100%; padding: 0.65rem 0.9rem;
+  background: var(--surface-container-highest); color: var(--on-surface);
+  border: none; border-bottom: 2px solid transparent; border-radius: var(--radius-sm);
+  font-size: 0.875rem; transition: all 0.2s;
+}
+.form-group input:focus, .form-group select:focus, .form-group textarea:focus {
+  outline: none; border-bottom-color: var(--primary);
+  background: var(--surface-variant);
+}
+.form-group input::placeholder { color: var(--outline); }
+.form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+.form-error { color: var(--error); font-size: 0.75rem; margin-top: 0.25rem; display: none; }
+.form-group.error .form-error { display: block; }
+.form-group.error input { border-bottom-color: var(--error); }
+
+/* ═══════ BUTTONS ═════════════════════════════════════════ */
+.btn {
+  display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.6rem 1.2rem;
+  border: none; border-radius: var(--radius); cursor: pointer; font-weight: 600;
+  font-size: 0.8rem; transition: all 0.2s; letter-spacing: 0.02em;
+}
+.btn-primary {
+  background: var(--tertiary); color: var(--on-tertiary);
+  box-shadow: 0 0 20px rgba(255,183,125,0.1);
+}
+.btn-primary:hover { background: #ffc99a; box-shadow: 0 0 30px rgba(255,183,125,0.15); }
+.btn-secondary { background: var(--surface-container-high); color: var(--on-surface); }
+.btn-danger { background: var(--error-container); color: var(--error); }
+.btn-danger:hover { background: #a1000d; }
+.btn-outline {
+  background: transparent; border: 1px solid var(--outline-variant);
+  color: var(--on-surface-variant);
+}
+.btn-outline:hover { background: var(--surface-container-high); color: var(--on-surface); }
+.btn-sm { padding: 0.35rem 0.7rem; font-size: 0.7rem; }
+.btn-block { width: 100%; justify-content: center; }
+.btn .material-symbols-outlined { font-size: 18px; }
+
+/* ═══════ LAYOUT ═════════════════════════════════════════ */
+.hidden { display: none !important; }
+.app-container { display: flex; min-height: 100vh; }
+
+/* ═══════ SIDEBAR ════════════════════════════════════════ */
+.sidebar {
+  width: 250px; position: fixed; top: 0; left: 0; bottom: 0; z-index: 50;
+  background: linear-gradient(to right, var(--surface-container-low), var(--bg));
+  display: flex; flex-direction: column; padding: 1.5rem 0;
+  box-shadow: 30px 0 60px -15px rgba(10,25,47,0.08);
+  font-size: 0.85rem; font-weight: 500;
+}
+.sidebar-header { padding: 0 1.5rem; margin-bottom: 2rem; display: flex; align-items: center; gap: 0.75rem; }
+.sidebar-header .logo-box {
+  width: 40px; height: 40px; background: var(--primary-container); border-radius: var(--radius-lg);
+  display: flex; align-items: center; justify-content: center;
+}
+.sidebar-header .logo-box .material-symbols-outlined { color: var(--primary); font-size: 22px; }
+.sidebar-header .logo-text h1 { font-family: 'Manrope'; font-size: 1.15rem; font-weight: 800; color: var(--primary); letter-spacing: 0.02em; }
+.sidebar-header .logo-text p { font-size: 0.55rem; text-transform: uppercase; letter-spacing: 0.25em; color: var(--outline); font-weight: 600; }
+.sidebar-close { display: none; background: none; border: none; color: var(--outline); font-size: 1.2rem; cursor: pointer; margin-left: auto; }
+
+.sidebar-nav { flex: 1; display: flex; flex-direction: column; gap: 2px; }
+.nav-item {
+  display: flex; align-items: center; gap: 0.75rem; padding: 0.7rem 1.5rem;
+  color: var(--on-surface-variant); opacity: 0.7; transition: all 0.15s; font-size: 0.85rem;
+  border-left: 3px solid transparent;
+}
+.nav-item:hover { background: var(--surface-container); color: var(--on-surface); opacity: 1; }
+.nav-item.active {
+  background: var(--primary-container); color: var(--primary); opacity: 1;
+  border-left-color: var(--tertiary); border-radius: 0 var(--radius-lg) var(--radius-lg) 0;
+}
+.nav-item .material-symbols-outlined { font-size: 20px; }
+.nav-item.hidden-nav { display: none; }
+
+.sidebar-cta { padding: 0 1rem; margin-top: 0.5rem; }
+.sidebar-cta .btn-primary { width: 100%; padding: 0.75rem; font-size: 0.8rem; border-radius: var(--radius-lg); }
+
+.sidebar-footer {
+  padding: 0 1.5rem; margin-top: 1rem; padding-top: 1rem;
+  border-top: 1px solid rgba(68,71,77,0.1);
+}
+.sidebar-footer a {
+  display: flex; align-items: center; gap: 0.75rem; padding: 0.4rem 0;
+  font-size: 0.75rem; color: var(--outline); transition: color 0.15s;
+}
+.sidebar-footer a:hover { color: var(--on-surface); }
+.sidebar-footer .material-symbols-outlined { font-size: 16px; }
+
+/* ═══════ MAIN CONTENT ════════════════════════════════════ */
+.main-content { flex: 1; margin-left: 250px; min-height: 100vh; display: flex; flex-direction: column; }
+
+/* ═══════ TOPBAR ═════════════════════════════════════════ */
+.topbar {
+  position: sticky; top: 0; z-index: 40; height: 56px;
+  background: var(--surface-container-low); display: flex; align-items: center; padding: 0 2rem;
+  font-family: 'Manrope', sans-serif;
+}
+.hamburger { display: none; background: none; border: none; color: var(--outline); cursor: pointer; margin-right: 1rem; }
+.hamburger .material-symbols-outlined { font-size: 24px; }
+.topbar-search {
+  display: flex; align-items: center; gap: 0.5rem; margin-right: 2rem;
+}
+.topbar-search .material-symbols-outlined { color: var(--outline); font-size: 20px; }
+.topbar-search input {
+  background: transparent; border: none; color: var(--on-surface-variant);
+  font-size: 0.85rem; width: 200px; outline: none;
+}
+.topbar-search input::placeholder { color: var(--outline-variant); }
+.topbar-tabs { display: flex; gap: 1.5rem; flex: 1; }
+.topbar-tabs a {
+  font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;
+  color: var(--outline); padding-bottom: 0.25rem; border-bottom: 2px solid transparent;
+  transition: all 0.2s; cursor: pointer;
+}
+.topbar-tabs a.active { color: var(--primary); border-bottom-color: var(--tertiary); }
+.topbar-tabs a:hover { color: var(--on-surface); }
+.topbar-right { display: flex; align-items: center; gap: 1rem; margin-left: auto; }
+.topbar-right button { background: none; border: none; color: var(--outline); cursor: pointer; transition: color 0.15s; padding: 0.25rem; }
+.topbar-right button:hover { color: var(--on-surface); }
+.topbar-right .material-symbols-outlined { font-size: 20px; }
+.user-avatar {
+  width: 32px; height: 32px; background: var(--surface-container-highest);
+  border-radius: var(--radius); display: flex; align-items: center; justify-content: center;
+  border: 1px solid rgba(68,71,77,0.3); overflow: hidden;
+}
+.user-avatar .material-symbols-outlined { font-size: 20px; color: var(--on-primary-container); }
+.user-info-text { font-size: 0.75rem; color: var(--on-surface-variant); }
+.role-badge {
+  display: inline-block; padding: 0.15rem 0.5rem; background: var(--primary-container);
+  color: var(--primary); border-radius: var(--radius); font-size: 0.6rem;
+  font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em;
+}
+
+/* ═══════ PAGES ══════════════════════════════════════════ */
+.page { display: none; padding: 2rem; }
+.page.active { display: block; }
+.page-header { margin-bottom: 1.5rem; }
+.page-title-section { margin-bottom: 2rem; }
+.page-title-section h2 {
+  font-family: 'Manrope'; font-size: 1.75rem; font-weight: 800;
+  letter-spacing: -0.02em; color: var(--on-surface);
+}
+.page-title-section p { font-size: 0.85rem; color: var(--on-primary-container); margin-top: 0.25rem; }
+.page-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; }
+.page-actions input, .page-actions select {
+  padding: 0.5rem 0.8rem; background: var(--surface-container-high);
+  border: none; border-radius: var(--radius); color: var(--on-surface);
+  font-size: 0.8rem;
+}
+.page-actions input:focus, .page-actions select:focus { outline: 1px solid var(--primary-container); }
+
+/* ═══════ METRIC MONOLITHS ════════════════════════════════ */
+.metric-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 2rem; }
+.metric-card {
+  background: linear-gradient(135deg, var(--surface-container-low), var(--surface-container-high));
+  padding: 1.5rem; border-radius: var(--radius-lg); position: relative; overflow: hidden;
+}
+.metric-card::after {
+  content: ''; position: absolute; right: -20px; top: -20px;
+  width: 100px; height: 100px; border-radius: 50%;
+  background: var(--primary-container); opacity: 0.15;
+}
+.metric-card .metric-label {
+  font-size: 0.6rem; font-weight: 600; color: var(--on-primary-container);
+  text-transform: uppercase; letter-spacing: 0.2em; margin-bottom: 0.5rem;
+}
+.metric-card .metric-value {
+  font-family: 'Manrope'; font-size: 1.8rem; font-weight: 800;
+  color: var(--on-background); letter-spacing: -0.03em;
+}
+.metric-card .metric-trend {
+  display: flex; align-items: center; gap: 0.3rem; margin-top: 0.5rem;
+  font-size: 0.7rem; font-weight: 500;
+}
+.metric-card .metric-trend.up { color: var(--tertiary); }
+.metric-card .metric-trend.down { color: var(--error); }
+.metric-card .metric-trend .material-symbols-outlined { font-size: 16px; }
+/* Color accents via ::before pseudo-element */
+.metric-card.accent-orange::after { background: var(--tertiary-container); }
+.metric-card.accent-blue::after { background: var(--primary-container); }
+.metric-card.accent-red::after { background: var(--error-container); }
+
+/* ═══════ CARDS ══════════════════════════════════════════ */
+.card {
+  background: var(--surface-container-low); border-radius: var(--radius-lg);
+  padding: 1.5rem;
+}
+.card h3 {
+  font-family: 'Manrope'; font-size: 1.1rem; font-weight: 700;
+  letter-spacing: -0.01em; margin-bottom: 1.25rem;
+}
+.card-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.25rem; }
+.card-header h3 { margin-bottom: 0; }
+
+/* ═══════ DASHBOARD GRID ═════════════════════════════════ */
+.dashboard-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; }
+.dashboard-grid .full-width { grid-column: 1 / -1; }
+.dashboard-grid .col-2-1 { grid-column: span 2; }
+.chart-card { min-height: 320px; }
+.chart-card canvas { max-height: 280px; }
+
+/* ═══════ DATA TABLE — No Lines Philosophy ════════════════ */
+.data-table { width: 100%; font-size: 0.8rem; }
+.data-table thead {}
+.data-table th {
+  padding: 0.75rem 1rem; text-align: left;
+  font-size: 0.6rem; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.2em; color: var(--outline);
+  border-bottom: 1px solid var(--outline-variant);
+}
+.data-table td {
+  padding: 0.85rem 1rem; vertical-align: middle; color: var(--on-surface);
+}
+.data-table tbody tr {
+  transition: background 0.15s; border-radius: var(--radius-lg);
+}
+.data-table tbody tr:hover { background: var(--surface-container-low); }
+/* Alternating tints instead of dividers */
+.data-table tbody tr:nth-child(even) { background: var(--surface-container-lowest); }
+.data-table tbody tr:nth-child(even):hover { background: var(--surface-container-low); }
+.data-table .actions { display: flex; gap: 0.3rem; }
+
+/* ═══════ STATUS BADGES ══════════════════════════════════ */
+.badge {
+  display: inline-block; padding: 0.2rem 0.6rem; border-radius: var(--radius);
+  font-size: 0.6rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;
+}
+.badge-success { background: rgba(129,199,132,0.1); color: var(--success); }
+.badge-warning { background: rgba(255,183,125,0.1); color: var(--tertiary); }
+.badge-danger { background: rgba(255,180,171,0.1); color: var(--error); }
+.badge-info { background: rgba(185,199,228,0.1); color: var(--primary); }
+.badge-neutral { background: var(--surface-container-high); color: var(--on-surface-variant); }
+
+/* ═══════ ALERT ITEMS ════════════════════════════════════ */
+.alert-feed { display: flex; flex-direction: column; gap: 0.75rem; }
+.alert-item {
+  padding: 1rem; background: var(--surface-container-lowest);
+  border-left: 2px solid var(--outline-variant); border-radius: 0 var(--radius-lg) var(--radius-lg) 0;
+  transition: background 0.15s;
+}
+.alert-item:hover { background: var(--surface-container-highest); }
+.alert-item.alert-error { border-left-color: var(--error); }
+.alert-item.alert-warning { border-left-color: var(--tertiary); }
+.alert-item.alert-info { border-left-color: var(--primary); }
+.alert-item .alert-type {
+  font-size: 0.55rem; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.15em; margin-bottom: 0.2rem;
+}
+.alert-item.alert-error .alert-type { color: var(--error); }
+.alert-item.alert-warning .alert-type { color: var(--tertiary); }
+.alert-item.alert-info .alert-type { color: var(--primary); }
+.alert-item .alert-title { font-size: 0.85rem; font-weight: 700; color: var(--on-surface); }
+.alert-item .alert-desc { font-size: 0.75rem; color: var(--on-surface-variant); margin-top: 0.2rem; line-height: 1.5; }
+.alert-item .alert-time { font-size: 0.6rem; color: var(--outline); }
+
+/* ═══════ POS LAYOUT ═════════════════════════════════════ */
+.pos-layout { display: grid; grid-template-columns: 1fr 380px; gap: 1.5rem; }
+.pos-search { display: flex; gap: 0.5rem; margin-bottom: 1rem; }
+.pos-search input {
+  flex: 1; padding: 0.7rem 1rem; background: var(--surface-container-high);
+  border: none; border-radius: var(--radius); color: var(--on-surface); font-size: 0.85rem;
+}
+.pos-search input:focus { outline: 1px solid var(--primary-container); }
+.pos-search select {
+  padding: 0.7rem; background: var(--surface-container-high);
+  border: none; border-radius: var(--radius); color: var(--on-surface); font-size: 0.8rem;
+}
+.pos-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 0.75rem;
+  max-height: 55vh; overflow-y: auto; padding-right: 0.5rem;
+}
+.pos-product-card {
+  background: var(--surface-container-high); border-radius: var(--radius-lg);
+  padding: 1.25rem; cursor: pointer; transition: all 0.2s; text-align: center;
+  border: 1px solid transparent;
+}
+.pos-product-card:hover {
+  background: var(--surface-container-highest);
+  border-color: var(--tertiary); transform: translateY(-2px);
+  box-shadow: 0 8px 30px rgba(255,183,125,0.05);
+}
+.pos-product-card .product-name { font-weight: 700; font-size: 0.8rem; margin-bottom: 0.4rem; color: var(--on-surface); }
+.pos-product-card .product-price { color: var(--tertiary); font-family: 'Manrope'; font-weight: 800; font-size: 1rem; }
+.pos-product-card .product-stock { font-size: 0.65rem; color: var(--outline); margin-top: 0.3rem; text-transform: uppercase; letter-spacing: 0.1em; }
+
+.pos-cart {
+  background: var(--surface-container-high); border-radius: var(--radius-lg);
+  padding: 1.5rem; display: flex; flex-direction: column; max-height: 80vh;
+  border-left: 1px solid rgba(255,183,125,0.05);
+}
+.pos-cart h3 { font-family: 'Manrope'; font-size: 1rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 1rem; }
+.cart-items { flex: 1; overflow-y: auto; margin-bottom: 1rem; min-height: 80px; }
+.cart-item {
+  display: flex; align-items: center; gap: 0.5rem; padding: 0.6rem 0;
+  font-size: 0.8rem;
+}
+.cart-item + .cart-item { border-top: none; }
+.cart-item .item-name { flex: 1; font-weight: 600; color: var(--on-surface); }
+.cart-item .item-qty {
+  width: 48px; text-align: center; padding: 0.3rem; border: none;
+  background: var(--surface-container-highest); color: var(--on-surface);
+  border-radius: var(--radius-sm); font-size: 0.8rem;
+}
+.cart-item .item-total { font-family: 'Manrope'; font-weight: 700; min-width: 65px; text-align: right; }
+.cart-item .item-remove { background: none; border: none; color: var(--error); cursor: pointer; padding: 0.2rem; opacity: 0.5; }
+.cart-item .item-remove:hover { opacity: 1; }
+.cart-summary { padding-top: 1rem; }
+.cart-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; font-size: 0.85rem; }
+.cart-row.total {
+  font-family: 'Manrope'; font-size: 1.5rem; font-weight: 800;
+  color: var(--on-background); padding-top: 0.75rem; margin-top: 0.5rem;
+}
+.cart-row label { font-size: 0.7rem; color: var(--on-primary-container); text-transform: uppercase; letter-spacing: 0.1em; }
+.cart-row input, .cart-row select {
+  width: 100px; padding: 0.35rem 0.5rem; border: none;
+  background: var(--surface-container-highest); color: var(--on-surface);
+  border-radius: var(--radius-sm); text-align: right; font-size: 0.8rem;
+}
+.cart-buttons { display: flex; flex-direction: column; gap: 0.5rem; margin-top: 1rem; }
+
+/* ═══════ REPORTS / INSIGHTS CONTROLS ════════════════════ */
+.report-controls, .insight-controls {
+  display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; margin-bottom: 1.5rem;
+  background: var(--surface-container-low); padding: 1rem 1.25rem;
+  border-radius: var(--radius-lg);
+}
+.report-controls label, .insight-controls label {
+  font-size: 0.6rem; font-weight: 700; color: var(--outline);
+  text-transform: uppercase; letter-spacing: 0.15em;
+}
+.report-controls select, .report-controls input,
+.insight-controls select, .insight-controls input {
+  padding: 0.5rem 0.8rem; background: var(--surface-container-high);
+  border: none; border-radius: var(--radius); color: var(--on-surface); font-size: 0.8rem;
+}
+
+/* ═══════ INSIGHTS GRID ══════════════════════════════════ */
+.insights-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; }
+.insights-grid .full-width { grid-column: 1 / -1; }
+.recommendations-list { display: flex; flex-direction: column; gap: 0.5rem; }
+.rec-item {
+  display: flex; gap: 1rem; padding: 1rem; border-radius: var(--radius-lg);
+  background: var(--surface-container-lowest); align-items: flex-start;
+  border-left: 2px solid var(--outline-variant); transition: background 0.15s;
+}
+.rec-item:hover { background: var(--surface-container); }
+.rec-item .rec-icon { font-size: 1.2rem; }
+.rec-item .rec-text { font-size: 0.8rem; color: var(--on-surface-variant); line-height: 1.5; }
+.rec-item .rec-text strong { display: block; color: var(--on-surface); margin-bottom: 0.15rem; }
+
+/* ═══════ SETTINGS ═══════════════════════════════════════ */
+.settings-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; }
+
+/* ═══════ HEALTH BAR ═════════════════════════════════════ */
+.health-bar {
+  width: 100%; height: 4px; background: var(--surface-container-high);
+  border-radius: 2px; overflow: hidden;
+}
+.health-bar .fill { height: 100%; border-radius: 2px; }
+.health-bar .fill.good { background: var(--primary); }
+.health-bar .fill.warn { background: var(--tertiary); }
+.health-bar .fill.bad { background: var(--error); }
+
+/* ═══════ MODAL — Glassmorphism ══════════════════════════ */
+.modal-overlay {
+  position: fixed; inset: 0; z-index: 200; display: flex;
+  align-items: center; justify-content: center; padding: 1rem;
+  background: rgba(0,0,0,0.6); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+}
+.modal-content {
+  background: var(--surface-container-high); border-radius: var(--radius-lg);
+  width: 100%; max-width: 600px; max-height: 90vh; overflow-y: auto;
+  box-shadow: var(--shadow-lg); border: 1px solid rgba(68,71,77,0.15);
+}
+.modal-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 1.25rem 1.5rem;
+}
+.modal-header h3 { font-family: 'Manrope'; font-size: 1.1rem; font-weight: 700; }
+.modal-close { background: none; border: none; color: var(--outline); cursor: pointer; padding: 0.25rem; }
+.modal-close:hover { color: var(--on-surface); }
+.modal-close .material-symbols-outlined { font-size: 22px; }
+.modal-body { padding: 0 1.5rem 1.5rem; }
+
+/* ═══════ RECEIPT ════════════════════════════════════════ */
+.receipt-modal { max-width: 400px; }
+.receipt-content {
+  padding: 1.5rem; font-family: 'Inter', monospace; font-size: 0.8rem; line-height: 1.7;
+}
+.receipt-content .receipt-header { text-align: center; margin-bottom: 1rem; padding-bottom: 0.75rem; border-bottom: 1px dashed rgba(68,71,77,0.3); }
+.receipt-content .receipt-header strong { font-family: 'Manrope'; font-size: 1rem; }
+.receipt-content .receipt-line { display: flex; justify-content: space-between; }
+.receipt-content .receipt-divider { border-top: 1px dashed rgba(68,71,77,0.3); margin: 0.5rem 0; }
+.receipt-content .receipt-total { font-family: 'Manrope'; font-weight: 800; font-size: 1.1rem; }
+.receipt-content .receipt-footer { text-align: center; margin-top: 1rem; font-size: 0.7rem; color: var(--outline); }
+
+/* ═══════ TOAST ══════════════════════════════════════════ */
+.toast {
+  position: fixed; bottom: 2rem; right: 2rem; padding: 0.8rem 1.5rem;
+  border-radius: var(--radius-lg); z-index: 300; font-size: 0.85rem; font-weight: 600;
+  box-shadow: var(--shadow-lg); transition: all 0.3s;
+}
+.toast.show { opacity: 1; transform: translateY(0); }
+.toast.hidden { opacity: 0; transform: translateY(10px); pointer-events: none; }
+.toast.toast-success { background: var(--surface-container-highest); color: var(--success); border-left: 3px solid var(--success); }
+.toast.toast-error { background: var(--surface-container-highest); color: var(--error); border-left: 3px solid var(--error); }
+
+/* ═══════ FOOTER ═════════════════════════════════════════ */
+.app-footer {
+  padding: 2rem; margin-top: 3rem; display: flex; justify-content: space-between;
+  align-items: center; font-size: 0.55rem; color: var(--outline-variant); font-weight: 700;
+  letter-spacing: 0.2em; text-transform: uppercase;
+  border-top: 1px solid rgba(68,71,77,0.05);
+}
+.app-footer a { transition: color 0.15s; }
+.app-footer a:hover { color: var(--primary); }
+
+/* ═══════ THEME TOGGLE ══════════════════════════════════ */
+.theme-toggle { position: relative; }
+.theme-toggle .material-symbols-outlined { font-size: 20px; }
+
+/* ═══════ UPLOAD AREA ══════════════════════════════════ */
+.upload-area {
+  border: 2px dashed var(--outline-variant); border-radius: var(--radius-lg);
+  padding: 2rem; text-align: center; cursor: pointer; transition: all 0.2s;
+  background: var(--surface-container-lowest); margin-bottom: 1rem;
+}
+.upload-area:hover { border-color: var(--primary); background: var(--surface-container); }
+.upload-area .material-symbols-outlined { font-size: 36px; color: var(--outline); margin-bottom: 0.5rem; }
+.upload-area p { font-size: 0.8rem; color: var(--on-surface-variant); }
+.upload-area .upload-hint { font-size: 0.7rem; color: var(--outline); margin-top: 0.25rem; }
+.upload-area input[type="file"] { display: none; }
+.template-link {
+  display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.75rem;
+  color: var(--primary); cursor: pointer; margin-top: 0.5rem; text-decoration: underline;
+}
+.template-link:hover { color: var(--tertiary); }
+
+/* ═══════ PRICE OVERRIDE ════════════════════════════════ */
+.cart-item .item-price {
+  width: 70px; text-align: right; padding: 0.3rem; border: none;
+  background: var(--surface-container-highest); color: var(--tertiary);
+  border-radius: var(--radius-sm); font-size: 0.8rem; font-family: 'Manrope'; font-weight: 700;
+}
+.cart-item .item-price:focus { outline: 1px solid var(--tertiary); }
+.cart-item .item-original-price {
+  font-size: 0.6rem; color: var(--outline); text-decoration: line-through; min-width: 45px; text-align: right;
+}
+
+/* ═══════ RESPONSIVE ═════════════════════════════════════ */
+@media (max-width: 1024px) {
+  .sidebar { transform: translateX(-100%); transition: transform 0.3s; }
+  .sidebar.open { transform: translateX(0); }
+  .sidebar-close { display: block; }
+  .main-content { margin-left: 0; }
+  .hamburger { display: flex; }
+  .dashboard-grid, .insights-grid, .settings-grid { grid-template-columns: 1fr; }
+  .pos-layout { grid-template-columns: 1fr; }
+  .pos-cart { max-height: none; }
+  .topbar-tabs { display: none; }
+}
+@media (max-width: 600px) {
+  .metric-cards { grid-template-columns: 1fr 1fr; }
+  .form-row { grid-template-columns: 1fr; }
+  .page-actions { flex-direction: column; }
+  .page-actions input, .page-actions select { width: 100%; }
+  .pos-grid { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); }
+  .page { padding: 1rem; }
+}
+@media print {
+  .sidebar, .topbar, .pos-products, .cart-buttons, .modal-close, .page-actions { display: none !important; }
+  .main-content { margin-left: 0; }
+}
+
+/* ═══════ PREVIEW SWITCHER BAR ═══════════════════════════ */
+#previewSwitcher {
+  position: fixed; bottom: 20px; right: 20px; z-index: 9999;
+  display: flex; gap: 6px; padding: 8px 12px;
+  background: rgba(30,30,30,0.95); border: 1px solid var(--outline-variant);
+  border-radius: var(--radius-lg); backdrop-filter: blur(12px);
+  box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+}
+#previewSwitcher button {
+  padding: 6px 14px; border: 1px solid var(--outline-variant);
+  border-radius: var(--radius); background: transparent;
+  color: var(--on-surface-variant); font-size: 0.7rem; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.1em; cursor: pointer;
+  transition: all 0.2s;
+}
+#previewSwitcher button:hover { background: var(--surface-container-high); color: var(--on-surface); }
+#previewSwitcher button.active-view {
+  background: var(--tertiary); color: var(--on-tertiary); border-color: var(--tertiary);
+}
+#previewSwitcher .preview-label {
+  display: flex; align-items: center; font-size: 0.55rem; font-weight: 700;
+  color: var(--outline); text-transform: uppercase; letter-spacing: 0.15em; margin-right: 4px;
+}
+#previewSwitcher .divider {
+  width: 1px; background: var(--outline-variant); margin: 0 4px;
+}
+</style>
+</head>
+<body>
+
+<!-- ═══════ FIRST-RUN SETUP WIZARD ══════════════════════════ -->
+<div id="setupScreen" class="login-screen hidden">
+  <div class="login-card" style="max-width:480px">
+    <div class="login-logo">
+      <div class="logo-icon"><span class="material-symbols-outlined">factory</span></div>
+      <h1>DWATREX</h1>
+      <p>First-Time Setup</p>
+    </div>
+    <p style="text-align:center;font-size:0.85rem;color:var(--on-primary-container);margin-bottom:1.5rem;line-height:1.6">
+      Welcome! Let's set up your store. You'll create the admin account that controls everything.
+    </p>
+    <form id="setupForm" onsubmit="return false">
+      <div class="form-group">
+        <label>Store Name</label>
+        <input type="text" id="setupStoreName" placeholder="e.g. My Retail Store" required>
+      </div>
+      <div style="margin:1.5rem 0 0.5rem;font-size:0.6rem;font-weight:700;color:var(--on-primary-container);text-transform:uppercase;letter-spacing:0.2em">Admin Account</div>
+      <div class="form-group">
+        <label>Full Name</label>
+        <input type="text" id="setupAdminName" placeholder="e.g. John Doe" required>
+      </div>
+      <div class="form-group">
+        <label>Username</label>
+        <input type="text" id="setupAdminUser" placeholder="Choose a username" required>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Password</label>
+          <input type="password" id="setupAdminPass" placeholder="Min 4 characters" required minlength="4">
+        </div>
+        <div class="form-group">
+          <label>Confirm Password</label>
+          <input type="password" id="setupAdminPassConfirm" placeholder="Repeat password" required minlength="4">
+        </div>
+      </div>
+      <div id="setupError" style="color:var(--error);font-size:0.8rem;margin-bottom:0.75rem;display:none"></div>
+      <button type="submit" class="btn btn-primary btn-block"><span class="material-symbols-outlined">rocket_launch</span> Launch Dwatrex</button>
+    </form>
+  </div>
+</div>
+
+<!-- ═══════ LOGIN SCREEN ═══════════════════════════════════ -->
+<div id="loginScreen" class="login-screen hidden">
+  <div class="login-card">
+    <div class="login-logo">
+      <div class="logo-icon"><span class="material-symbols-outlined">factory</span></div>
+      <h1>DWATREX</h1>
+      <p>Industrial Forge</p>
+    </div>
+    <form id="loginForm" onsubmit="return false">
+      <div class="form-group">
+        <label>Username</label>
+        <input type="text" id="loginUser" placeholder="Enter username" required>
+      </div>
+      <div class="form-group">
+        <label>Password</label>
+        <input type="password" id="loginPass" placeholder="Enter password" required>
+      </div>
+      <div id="loginError" style="color:var(--error);font-size:0.8rem;margin-bottom:0.75rem;display:none"></div>
+      <button type="submit" class="btn btn-primary btn-block">Sign In</button>
+    </form>
+  </div>
+</div>
+
+<!-- ═══════ MAIN APP ══════════════════════════════════════ -->
+<div id="appContainer" class="app-container hidden">
+
+  <!-- SIDEBAR -->
+  <aside id="sidebar" class="sidebar">
+    <div class="sidebar-header">
+      <div class="logo-box"><span class="material-symbols-outlined">factory</span></div>
+      <div class="logo-text">
+        <h1>DWATREX</h1>
+        <p>Industrial Forge</p>
+      </div>
+      <button class="sidebar-close" onclick="toggleSidebar()"><span class="material-symbols-outlined">close</span></button>
+    </div>
+
+    <nav class="sidebar-nav">
+      <a href="#" class="nav-item active" data-page="dashboard" onclick="navigateTo('dashboard',this)">
+        <span class="material-symbols-outlined">dashboard</span><span>Dashboard</span>
+      </a>
+      <a href="#" class="nav-item" data-page="products" onclick="navigateTo('products',this)">
+        <span class="material-symbols-outlined">inventory_2</span><span>Products</span>
+      </a>
+      <a href="#" class="nav-item" data-page="categories" onclick="navigateTo('categories',this)">
+        <span class="material-symbols-outlined">category</span><span>Categories</span>
+      </a>
+      <a href="#" class="nav-item" data-page="suppliers" onclick="navigateTo('suppliers',this)">
+        <span class="material-symbols-outlined">local_shipping</span><span>Suppliers</span>
+      </a>
+      <a href="#" class="nav-item" data-page="sales" onclick="navigateTo('sales',this)">
+        <span class="material-symbols-outlined">point_of_sale</span><span>POS Command</span>
+      </a>
+      <a href="#" class="nav-item" data-page="purchases" onclick="navigateTo('purchases',this)">
+        <span class="material-symbols-outlined">shopping_cart_checkout</span><span>Purchases</span>
+      </a>
+      <a href="#" class="nav-item" data-page="inventory" onclick="navigateTo('inventory',this)">
+        <span class="material-symbols-outlined">warehouse</span><span>Inventory</span>
+      </a>
+      <a href="#" class="nav-item" data-page="returns" onclick="navigateTo('returns',this)">
+        <span class="material-symbols-outlined">assignment_return</span><span>Returns</span>
+      </a>
+      <a href="#" class="nav-item" data-page="reports" onclick="navigateTo('reports',this)">
+        <span class="material-symbols-outlined">analytics</span><span>Reports</span>
+      </a>
+      <a href="#" class="nav-item" data-page="insights" onclick="navigateTo('insights',this)">
+        <span class="material-symbols-outlined">psychology</span><span>Intelligence</span>
+      </a>
+      <a href="#" class="nav-item" data-page="users" onclick="navigateTo('users',this)">
+        <span class="material-symbols-outlined">group</span><span>Users</span>
+      </a>
+      <a href="#" class="nav-item" data-page="settings" onclick="navigateTo('settings',this)">
+        <span class="material-symbols-outlined">manufacturing</span><span>Settings</span>
+      </a>
+    </nav>
+
+    <div class="sidebar-cta">
+      <button class="btn btn-primary" onclick="navigateTo('sales',document.querySelector('[data-page=sales]'))">
+        <span class="material-symbols-outlined">add</span> Quick Transaction
+      </button>
+    </div>
+
+    <div class="sidebar-footer">
+      <a href="#"><span class="material-symbols-outlined">logout</span> Sign Out</a>
+      <a href="#"><span class="material-symbols-outlined">help</span> Support</a>
+    </div>
+  </aside>
+
+  <!-- MAIN CONTENT -->
+  <main class="main-content">
+
+    <!-- TOPBAR -->
+    <header class="topbar">
+      <button class="hamburger" onclick="toggleSidebar()"><span class="material-symbols-outlined">menu</span></button>
+      <div class="topbar-search">
+        <span class="material-symbols-outlined">search</span>
+        <input type="text" placeholder="Command Search..." id="globalSearch">
+      </div>
+      <nav class="topbar-tabs">
+        <a class="active" data-tab="dashboard" onclick="navigateTo('dashboard',document.querySelector('[data-page=dashboard]'))">Operations</a>
+        <a data-tab="inventory" onclick="navigateTo('inventory',document.querySelector('[data-page=inventory]'))">Inventory</a>
+        <a data-tab="sales" onclick="navigateTo('sales',document.querySelector('[data-page=sales]'))">Sales</a>
+        <a data-tab="reports" onclick="navigateTo('reports',document.querySelector('[data-page=reports]'))">Capital</a>
+      </nav>
+      <div class="topbar-right">
+        <button class="theme-toggle" onclick="toggleTheme()" title="Toggle light/dark mode"><span class="material-symbols-outlined" id="themeIcon">light_mode</span></button>
+        <button title="Notifications"><span class="material-symbols-outlined">notifications</span></button>
+        <div class="user-avatar"><span class="material-symbols-outlined">person</span></div>
+        <div class="user-info-text">
+          <span id="currentUser">Admin</span>
+          <span id="currentRole" class="role-badge">admin</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- ═══════ DASHBOARD ═══════════════════════════════════ -->
+    <section id="page-dashboard" class="page active">
+      <div class="page-title-section">
+        <h2>Operations Dashboard</h2>
+        <p>Real-time overview of your retail operations</p>
+      </div>
+      <div class="metric-cards">
+        <div class="metric-card accent-orange">
+          <div class="metric-label">Today's Revenue</div>
+          <div class="metric-value" id="metricTodaySales">$0</div>
+          <div class="metric-trend up"><span class="material-symbols-outlined">trending_up</span><span id="metricTodayTrend"></span></div>
+        </div>
+        <div class="metric-card accent-blue">
+          <div class="metric-label">This Week</div>
+          <div class="metric-value" id="metricWeekSales">$0</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">This Month</div>
+          <div class="metric-value" id="metricMonthSales">$0</div>
+        </div>
+        <div class="metric-card accent-orange">
+          <div class="metric-label">Transactions</div>
+          <div class="metric-value" id="metricTransactions">0</div>
+        </div>
+        <div class="metric-card accent-blue">
+          <div class="metric-label">Inventory Value</div>
+          <div class="metric-value" id="metricInventoryVal">$0</div>
+        </div>
+        <div class="metric-card accent-red">
+          <div class="metric-label">Low Stock Alerts</div>
+          <div class="metric-value" id="metricLowStock">0</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">Gross Profit</div>
+          <div class="metric-value" id="metricProfit">$0</div>
+        </div>
+        <div class="metric-card accent-blue">
+          <div class="metric-label">Total Products</div>
+          <div class="metric-value" id="metricProducts">0</div>
+        </div>
+      </div>
+      <div class="dashboard-grid">
+        <div class="card chart-card"><div class="card-header"><h3>Sales Trend</h3></div><canvas id="salesTrendChart"></canvas></div>
+        <div class="card chart-card"><div class="card-header"><h3>Revenue by Category</h3></div><canvas id="categorySalesChart"></canvas></div>
+        <div class="card">
+          <div class="card-header"><h3>Fast Moving Goods</h3></div>
+          <table class="data-table" id="fastMovingTable"><thead><tr><th>Product</th><th>Qty Sold</th><th>Revenue</th></tr></thead><tbody></tbody></table>
+        </div>
+        <div class="card">
+          <div class="card-header"><h3>Slow Inventory</h3></div>
+          <table class="data-table" id="slowMovingTable"><thead><tr><th>Product</th><th>Qty Sold</th><th>Days in Stock</th></tr></thead><tbody></tbody></table>
+        </div>
+        <div class="card full-width">
+          <div class="card-header"><h3>Recent Activity</h3></div>
+          <table class="data-table" id="recentSalesTable"><thead><tr><th>ID</th><th>Date</th><th>Items</th><th>Total</th><th>Payment</th><th>Status</th></tr></thead><tbody></tbody></table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══════ PRODUCTS ════════════════════════════════════ -->
+    <section id="page-products" class="page">
+      <div class="page-title-section">
+        <h2>Product Catalog</h2>
+        <p>Manage your entire product inventory</p>
+      </div>
+      <div class="page-header">
+        <div class="page-actions">
+          <input type="text" id="productSearch" placeholder="Search products...">
+          <select id="productCategoryFilter"><option value="">All Categories</option></select>
+          <select id="productStatusFilter"><option value="">All Status</option><option value="In Stock">In Stock</option><option value="Low Stock">Low Stock</option><option value="Out of Stock">Out of Stock</option></select>
+          <button class="btn btn-primary"><span class="material-symbols-outlined">add</span> Add Product</button>
+          <button class="btn btn-outline"><span class="material-symbols-outlined">upload_file</span> Import CSV</button>
+        </div>
+      </div>
+      <div class="card">
+        <table class="data-table" id="productsTable">
+          <thead><tr><th>SKU</th><th>Name</th><th>Category</th><th>Cost</th><th>Price</th><th>Stock</th><th>Reorder</th><th>Status</th><th>Actions</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ═══════ CATEGORIES ══════════════════════════════════ -->
+    <section id="page-categories" class="page">
+      <div class="page-title-section">
+        <h2>Categories</h2>
+        <p>Organize products by category</p>
+      </div>
+      <div class="page-header">
+        <div class="page-actions">
+          <button class="btn btn-primary"><span class="material-symbols-outlined">add</span> Add Category</button>
+          <button class="btn btn-outline"><span class="material-symbols-outlined">upload_file</span> Import CSV</button>
+        </div>
+      </div>
+      <div class="card">
+        <table class="data-table" id="categoriesTable"><thead><tr><th>ID</th><th>Name</th><th>Products</th><th>Actions</th></tr></thead><tbody></tbody></table>
+      </div>
+    </section>
+
+    <!-- ═══════ SUPPLIERS ═══════════════════════════════════ -->
+    <section id="page-suppliers" class="page">
+      <div class="page-title-section">
+        <h2>Supply Chain</h2>
+        <p>Manage supplier relationships</p>
+      </div>
+      <div class="page-header">
+        <div class="page-actions"><button class="btn btn-primary"><span class="material-symbols-outlined">add</span> Add Supplier</button></div>
+      </div>
+      <div class="card">
+        <table class="data-table" id="suppliersTable"><thead><tr><th>ID</th><th>Name</th><th>Contact</th><th>Email</th><th>Phone</th><th>Actions</th></tr></thead><tbody></tbody></table>
+      </div>
+    </section>
+
+    <!-- ═══════ SALES / POS COMMAND ═════════════════════════ -->
+    <section id="page-sales" class="page">
+      <div class="page-title-section">
+        <h2>POS Command</h2>
+        <p>Process sales transactions</p>
+      </div>
+      <div class="pos-layout">
+        <div class="pos-products">
+          <div class="pos-search">
+            <input type="text" id="posSearch" placeholder="Search products by name or SKU...">
+            <select id="posCategoryFilter"><option value="">All</option></select>
+          </div>
+          <div class="pos-grid" id="posProductGrid"></div>
+        </div>
+        <div class="pos-cart">
+          <h3><span class="material-symbols-outlined" style="font-size:18px;margin-right:0.5rem">receipt_long</span>Current Sale</h3>
+          <div class="cart-items" id="cartItems"></div>
+          <div class="cart-summary">
+            <div class="cart-row"><span>Subtotal</span><span id="cartSubtotal">$0.00</span></div>
+            <div class="cart-row"><label>Discount (%)</label><input type="number" id="cartDiscount" value="0" min="0" max="100"></div>
+            <div class="cart-row"><label>Tax (%)</label><input type="number" id="cartTax" value="7.5" min="0"></div>
+            <div class="cart-row total"><span>Total</span><span id="cartTotal">$0.00</span></div>
+            <div class="cart-row"><label>Payment</label><select id="paymentMethod"><option>Cash</option><option>Mobile Money</option><option>Card</option><option>Bank Transfer</option></select></div>
+            <div class="cart-buttons">
+              <button class="btn btn-primary btn-block"><span class="material-symbols-outlined">check_circle</span> Complete Sale</button>
+              <button class="btn btn-outline btn-block"><span class="material-symbols-outlined">delete_sweep</span> Clear Cart</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="card" style="margin-top:1.5rem">
+        <div class="card-header"><h3>Sales History</h3></div>
+        <div class="page-actions" style="margin-bottom:1rem">
+          <input type="date" id="salesHistoryFrom">
+          <input type="date" id="salesHistoryTo">
+        </div>
+        <table class="data-table" id="salesHistoryTable">
+          <thead><tr><th>ID</th><th>Date</th><th>Items</th><th>Subtotal</th><th>Discount</th><th>Tax</th><th>Total</th><th>Payment</th><th>Actions</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ═══════ PURCHASES ═══════════════════════════════════ -->
+    <section id="page-purchases" class="page">
+      <div class="page-title-section">
+        <h2>Purchase Orders</h2>
+        <p>Track incoming stock purchases</p>
+      </div>
+      <div class="page-header">
+        <div class="page-actions"><button class="btn btn-primary"><span class="material-symbols-outlined">add</span> New Purchase</button></div>
+      </div>
+      <div class="card">
+        <table class="data-table" id="purchasesTable"><thead><tr><th>ID</th><th>Date</th><th>Supplier</th><th>Items</th><th>Total Cost</th><th>Status</th></tr></thead><tbody></tbody></table>
+      </div>
+    </section>
+
+    <!-- ═══════ INVENTORY ═══════════════════════════════════ -->
+    <section id="page-inventory" class="page">
+      <div class="page-title-section">
+        <h2>Inventory Intelligence</h2>
+        <p>Stock levels, movements, and health metrics</p>
+      </div>
+      <div class="metric-cards">
+        <div class="metric-card accent-blue">
+          <div class="metric-label">Total Items</div>
+          <div class="metric-value" id="invTotalItems">0</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">Total Value</div>
+          <div class="metric-value" id="invTotalValue">$0</div>
+        </div>
+        <div class="metric-card accent-red">
+          <div class="metric-label">Low Stock</div>
+          <div class="metric-value" id="invLowStock">0</div>
+        </div>
+        <div class="metric-card accent-orange">
+          <div class="metric-label">Out of Stock</div>
+          <div class="metric-value" id="invOutOfStock">0</div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-header"><h3>Stock Movement Log</h3></div>
+        <table class="data-table" id="stockMovementTable">
+          <thead><tr><th>Date</th><th>Product</th><th>Type</th><th>Qty</th><th>Reference</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ═══════ RETURNS ═════════════════════════════════════ -->
+    <section id="page-returns" class="page">
+      <div class="page-title-section">
+        <h2>Returns Management</h2>
+        <p>Process and track product returns</p>
+      </div>
+      <div class="page-header">
+        <div class="page-actions"><button class="btn btn-primary"><span class="material-symbols-outlined">add</span> New Return</button></div>
+      </div>
+      <div class="card">
+        <table class="data-table" id="returnsTable">
+          <thead><tr><th>ID</th><th>Date</th><th>Sale ID</th><th>Product</th><th>Qty</th><th>Reason</th><th>Resellable</th><th>Refund</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ═══════ REPORTS ═════════════════════════════════════ -->
+    <section id="page-reports" class="page">
+      <div class="page-title-section">
+        <h2>Capital Analytics</h2>
+        <p>Deep-dive into financial performance</p>
+      </div>
+      <div class="report-controls">
+        <select id="reportType">
+          <option value="dailySales">Daily Sales Report</option>
+          <option value="weeklySales">Weekly Sales Report</option>
+          <option value="monthlySales">Monthly Sales Report</option>
+          <option value="salesByProduct">Sales by Product</option>
+          <option value="salesByCategory">Sales by Category</option>
+          <option value="profitByPeriod">Profit by Period</option>
+          <option value="inventoryValuation">Inventory Valuation</option>
+          <option value="lowStock">Low Stock Report</option>
+          <option value="stockMovement">Stock Movement</option>
+          <option value="returnsReport">Returns Report</option>
+          <option value="fastMoving">Fast Moving Goods</option>
+          <option value="slowMoving">Slow Moving Inventory</option>
+        </select>
+        <input type="date" id="reportFrom">
+        <input type="date" id="reportTo">
+        <button class="btn btn-outline"><span class="material-symbols-outlined">picture_as_pdf</span> Export PDF</button>
+        <button class="btn btn-outline"><span class="material-symbols-outlined">table_chart</span> Export Excel</button>
+      </div>
+      <div class="card chart-card"><canvas id="reportChart"></canvas></div>
+      <div class="card" style="margin-top:1.25rem">
+        <table class="data-table" id="reportTable"><thead></thead><tbody></tbody></table>
+      </div>
+    </section>
+
+    <!-- ═══════ INSIGHTS / INTELLIGENCE ═════════════════════ -->
+    <section id="page-insights" class="page">
+      <div class="page-title-section">
+        <h2>Intelligence Center</h2>
+        <p>AI-driven analysis and recommendations</p>
+      </div>
+      <div class="insight-controls">
+        <label>From</label><input type="date" id="insightFrom">
+        <label>To</label><input type="date" id="insightTo">
+        <label>Show</label>
+        <select id="insightCount">
+          <option value="5">Top 5</option><option value="8">Top 8</option>
+          <option value="10" selected>Top 10</option><option value="15">Top 15</option><option value="20">Top 20</option>
+        </select>
+      </div>
+      <div class="insights-grid">
+        <div class="card">
+          <div class="card-header"><h3>Best Selling Products</h3></div>
+          <table class="data-table" id="insightBestSelling"><thead><tr><th>Product</th><th>Qty Sold</th><th>Revenue</th></tr></thead><tbody></tbody></table>
+        </div>
+        <div class="card">
+          <div class="card-header"><h3>Worst Selling Products</h3></div>
+          <table class="data-table" id="insightWorstSelling"><thead><tr><th>Product</th><th>Qty Sold</th><th>Revenue</th></tr></thead><tbody></tbody></table>
+        </div>
+        <div class="card">
+          <div class="card-header"><h3>Dead Stock</h3></div>
+          <table class="data-table" id="insightDeadStock"><thead><tr><th>Product</th><th>Stock</th><th>Value</th></tr></thead><tbody></tbody></table>
+        </div>
+        <div class="card">
+          <div class="card-header"><h3>Urgent Restock</h3></div>
+          <table class="data-table" id="insightRestock"><thead><tr><th>Product</th><th>Stock</th><th>Reorder Level</th></tr></thead><tbody></tbody></table>
+        </div>
+        <div class="card"><div class="card-header"><h3>Peak Sales Days</h3></div><canvas id="peakDaysChart"></canvas></div>
+        <div class="card"><div class="card-header"><h3>Revenue by Category</h3></div><canvas id="revenueCategoryChart"></canvas></div>
+        <div class="card full-width">
+          <div class="card-header"><h3>Profitability by Product</h3></div>
+          <table class="data-table" id="insightProfitability"><thead><tr><th>Product</th><th>Revenue</th><th>Cost</th><th>Profit</th><th>Margin</th></tr></thead><tbody></tbody></table>
+        </div>
+        <div class="card full-width">
+          <div class="card-header"><h3><span class="material-symbols-outlined" style="font-size:20px;margin-right:0.5rem;color:var(--tertiary)">psychology</span>Recommendations</h3></div>
+          <div id="insightRecommendations" class="recommendations-list"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══════ USERS ═══════════════════════════════════════ -->
+    <section id="page-users" class="page">
+      <div class="page-title-section">
+        <h2>User Management</h2>
+        <p>System access and role configuration</p>
+      </div>
+      <div class="page-header">
+        <div class="page-actions"><button class="btn btn-primary"><span class="material-symbols-outlined">person_add</span> Add User</button></div>
+      </div>
+      <div class="card">
+        <div class="card-header"><h3>System Users</h3></div>
+        <table class="data-table" id="usersTable"><thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Status</th><th>Actions</th></tr></thead><tbody></tbody></table>
+      </div>
+    </section>
+
+    <!-- ═══════ SETTINGS ════════════════════════════════════ -->
+    <section id="page-settings" class="page">
+      <div class="page-title-section">
+        <h2>System Settings</h2>
+        <p>Configure your Dwatrex platform</p>
+      </div>
+      <div class="settings-grid">
+        <div class="card">
+          <h3>Store Configuration</h3>
+          <div class="form-group"><label>Store Name</label><input type="text" id="settingStoreName" value="Accra Central Market"></div>
+          <div class="form-group"><label>Currency Symbol</label><input type="text" id="settingCurrency" value="$"></div>
+          <div class="form-group"><label>Tax Rate (%)</label><input type="number" id="settingTaxRate" value="7.5"></div>
+          <div class="form-group"><label>Low Stock Threshold</label><input type="number" id="settingLowStock" value="10"></div>
+          <div class="form-group"><label>Fast Moving Threshold (units/month)</label><input type="number" id="settingFastMoving" value="50"></div>
+          <div class="form-group"><label>Slow Moving Threshold (units/month)</label><input type="number" id="settingSlowMoving" value="5"></div>
+          <button class="btn btn-primary"><span class="material-symbols-outlined">save</span> Save Settings</button>
+        </div>
+        <div class="card">
+          <h3>Platform</h3>
+          <div class="form-group">
+            <label>Database</label>
+            <p style="font-size:0.8rem;color:var(--on-primary-container);line-height:1.6">All data is stored in a local SQLite database. Your data is private and works fully offline.</p>
+          </div>
+          <div style="margin-top:2rem">
+            <h3>System Info</h3>
+            <div style="margin-top:1rem;font-size:0.75rem;color:var(--on-primary-container);line-height:2">
+              <div>Platform: <span style="color:var(--on-surface)">Dwatrex Industrial Forge v1.0</span></div>
+              <div>Engine: <span style="color:var(--on-surface)">Python + pywebview + SQLite</span></div>
+              <div>Design: <span style="color:var(--on-surface)">The Kinetic Monolith</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- FOOTER -->
+    <footer class="app-footer">
+      <span>Dwatrex Industrial Forge &copy; 2026</span>
+      <span>Powering Your Store Capital</span>
+    </footer>
+
+  </main>
+</div>
+
+<!-- ═══════ MODAL ════════════════════════════════════════ -->
+<div id="modal" class="modal-overlay hidden">
+  <div class="modal-content">
+    <div class="modal-header"><h3 id="modalTitle">Modal</h3><button class="modal-close"><span class="material-symbols-outlined">close</span></button></div>
+    <div class="modal-body" id="modalBody"></div>
+  </div>
+</div>
+
+<!-- ═══════ RECEIPT MODAL ════════════════════════════════ -->
+<div id="receiptModal" class="modal-overlay hidden">
+  <div class="modal-content receipt-modal">
+    <div class="modal-header"><h3>Receipt</h3><button class="modal-close"><span class="material-symbols-outlined">close</span></button></div>
+    <div id="receiptContent" class="receipt-content"></div>
+    <div style="text-align:center;padding:1rem"><button class="btn btn-primary"><span class="material-symbols-outlined">print</span> Print Receipt</button></div>
+  </div>
+</div>
+
+<!-- ═══════ TOAST ════════════════════════════════════════ -->
+<div id="toast" class="toast hidden"></div>
+
+<!-- ═══════ PREVIEW SWITCHER ═════════════════════════════ -->
+<div id="previewSwitcher">
+  <span class="preview-label">Preview</span>
+  <button class="active-view" onclick="showView('setup', this)">Setup</button>
+  <button onclick="showView('login', this)">Login</button>
+  <button onclick="showView('app', this)">App</button>
+  <span class="divider"></span>
+  <button onclick="togglePreviewTheme(this)" id="themeToggleBtn">Light</button>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════
+// DWATREX STATIC PREVIEW — Sample Data & View Switching
+// ═══════════════════════════════════════════════════════════
+
+// Stub functions so onclick handlers don't throw errors
+function navigateTo(page, el) {
+  document.querySelectorAll('.page').forEach(function(p) { p.classList.remove('active'); });
+  var target = document.getElementById('page-' + page);
+  if (target) target.classList.add('active');
+  document.querySelectorAll('.nav-item').forEach(function(n) { n.classList.remove('active'); });
+  if (el) el.classList.add('active');
+}
+function toggleSidebar() {
+  document.getElementById('sidebar').classList.toggle('open');
+}
+
+// ═══════ THEME TOGGLE ══════════════════════════════════
+function toggleTheme() {
+  var html = document.documentElement;
+  var icon = document.getElementById('themeIcon');
+  var previewBtn = document.getElementById('themeToggleBtn');
+  if (html.getAttribute('data-theme') === 'light') {
+    html.removeAttribute('data-theme');
+    if (icon) icon.textContent = 'light_mode';
+    if (previewBtn) { previewBtn.textContent = 'Light'; previewBtn.classList.remove('active-view'); }
+  } else {
+    html.setAttribute('data-theme', 'light');
+    if (icon) icon.textContent = 'dark_mode';
+    if (previewBtn) { previewBtn.textContent = 'Dark'; previewBtn.classList.add('active-view'); }
+  }
+  // Recreate charts with new theme colors if app is visible
+  if (!document.getElementById('appContainer').classList.contains('hidden') && chartsInitialized) {
+    destroyAllCharts();
+    initCharts();
+  }
+}
+function togglePreviewTheme(btn) {
+  toggleTheme();
+}
+
+// ═══════ VIEW SWITCHING ═════════════════════════════════
+var chartsInitialized = false;
+
+function showView(view, btn) {
+  var setup = document.getElementById('setupScreen');
+  var login = document.getElementById('loginScreen');
+  var app   = document.getElementById('appContainer');
+
+  setup.classList.add('hidden');
+  login.classList.add('hidden');
+  app.classList.add('hidden');
+
+  // Update switcher buttons (only view buttons, not theme)
+  document.querySelectorAll('#previewSwitcher button:not(#themeToggleBtn)').forEach(function(b) { b.classList.remove('active-view'); });
+  if (btn) btn.classList.add('active-view');
+
+  if (view === 'setup') {
+    setup.classList.remove('hidden');
+  } else if (view === 'login') {
+    login.classList.remove('hidden');
+  } else if (view === 'app') {
+    app.classList.remove('hidden');
+    if (!chartsInitialized) {
+      populateAppData();
+      initCharts();
+      chartsInitialized = true;
+    }
+  }
+}
+
+// ═══════ SETUP SCREEN — Pre-fill sample data ════════════
+document.getElementById('setupStoreName').value = 'Accra Central Market';
+document.getElementById('setupAdminName').value = 'Joseph Mensah';
+document.getElementById('setupAdminUser').value = 'jmensah';
+
+// ═══════ LOGIN SCREEN — Pre-fill sample data ════════════
+document.getElementById('loginUser').value = 'jmensah';
+
+// ═══════ APP DATA POPULATION ════════════════════════════
+function populateAppData() {
+  // Sidebar / topbar user info
+  document.getElementById('currentUser').textContent = 'Joseph Mensah';
+  document.getElementById('currentRole').textContent = 'ADMIN';
+
+  // Dashboard metrics
+  document.getElementById('metricTodaySales').textContent = '$4,827';
+  document.getElementById('metricTodayTrend').textContent = '+12.3% vs yesterday';
+  document.getElementById('metricWeekSales').textContent = '$23,491';
+  document.getElementById('metricMonthSales').textContent = '$94,205';
+  document.getElementById('metricTransactions').textContent = '187';
+  document.getElementById('metricInventoryVal').textContent = '$312,740';
+  document.getElementById('metricLowStock').textContent = '8';
+  document.getElementById('metricProfit').textContent = '$31,402';
+  document.getElementById('metricProducts').textContent = '246';
+
+  // Fast Moving table
+  fillTable('fastMovingTable', [
+    ['Premium Rice (50kg)', '342', '$17,100'],
+    ['Cooking Oil (5L)', '289', '$8,670'],
+    ['Sugar (1kg)', '256', '$1,536'],
+    ['Tomato Paste (400g)', '198', '$990'],
+    ['Cement (50kg)', '175', '$8,750']
+  ]);
+
+  // Slow Moving table
+  fillTable('slowMovingTable', [
+    ['Decorative Vase', '2', '94'],
+    ['Premium Blender', '3', '67'],
+    ['Wall Clock (Gold)', '1', '112'],
+    ['Leather Wallet', '4', '58'],
+    ['Crystal Bowl Set', '0', '130']
+  ]);
+
+  // Recent Sales table
+  fillTable('recentSalesTable', [
+    ['#1042', '2026-06-16 14:32', '5 items', '$247.50', 'Cash', '<span class="badge badge-success">Completed</span>'],
+    ['#1041', '2026-06-16 13:18', '2 items', '$89.00', 'Mobile Money', '<span class="badge badge-success">Completed</span>'],
+    ['#1040', '2026-06-16 11:45', '8 items', '$512.30', 'Card', '<span class="badge badge-success">Completed</span>'],
+    ['#1039', '2026-06-16 10:22', '1 item', '$45.00', 'Cash', '<span class="badge badge-success">Completed</span>'],
+    ['#1038', '2026-06-15 17:55', '3 items', '$178.90', 'Bank Transfer', '<span class="badge badge-success">Completed</span>'],
+    ['#1037', '2026-06-15 16:30', '6 items', '$623.00', 'Mobile Money', '<span class="badge badge-warning">Pending</span>']
+  ]);
+
+  // Products table
+  fillTable('productsTable', [
+    ['SKU-001', 'Premium Rice (50kg)', 'Groceries', '$38.00', '$50.00', '124', '20', '<span class="badge badge-success">In Stock</span>', '<div class="actions"><button class="btn btn-sm btn-outline">Edit</button></div>'],
+    ['SKU-002', 'Cooking Oil (5L)', 'Groceries', '$22.00', '$30.00', '89', '15', '<span class="badge badge-success">In Stock</span>', '<div class="actions"><button class="btn btn-sm btn-outline">Edit</button></div>'],
+    ['SKU-003', 'Cement (50kg)', 'Building', '$35.00', '$50.00', '45', '30', '<span class="badge badge-success">In Stock</span>', '<div class="actions"><button class="btn btn-sm btn-outline">Edit</button></div>'],
+    ['SKU-004', 'Sugar (1kg)', 'Groceries', '$4.50', '$6.00', '8', '25', '<span class="badge badge-warning">Low Stock</span>', '<div class="actions"><button class="btn btn-sm btn-outline">Edit</button></div>'],
+    ['SKU-005', 'Tomato Paste (400g)', 'Groceries', '$3.00', '$5.00', '0', '40', '<span class="badge badge-danger">Out of Stock</span>', '<div class="actions"><button class="btn btn-sm btn-outline">Edit</button></div>'],
+    ['SKU-006', 'Roofing Sheet (3m)', 'Building', '$18.00', '$28.00', '62', '10', '<span class="badge badge-success">In Stock</span>', '<div class="actions"><button class="btn btn-sm btn-outline">Edit</button></div>'],
+    ['SKU-007', 'Detergent (1kg)', 'Household', '$5.00', '$8.00', '156', '20', '<span class="badge badge-success">In Stock</span>', '<div class="actions"><button class="btn btn-sm btn-outline">Edit</button></div>']
+  ]);
+
+  // Categories table
+  fillTable('categoriesTable', [
+    ['1', 'Groceries', '84', '<div class="actions"><button class="btn btn-sm btn-outline">Edit</button></div>'],
+    ['2', 'Building Materials', '42', '<div class="actions"><button class="btn btn-sm btn-outline">Edit</button></div>'],
+    ['3', 'Household', '56', '<div class="actions"><button class="btn btn-sm btn-outline">Edit</button></div>'],
+    ['4', 'Electronics', '38', '<div class="actions"><button class="btn btn-sm btn-outline">Edit</button></div>'],
+    ['5', 'Clothing', '26', '<div class="actions"><button class="btn btn-sm btn-outline">Edit</button></div>']
+  ]);
+
+  // Suppliers table
+  fillTable('suppliersTable', [
+    ['1', 'Dangote Industries', 'Kwame Asante', 'kwame@dangote.com', '+233-24-555-0101', '<div class="actions"><button class="btn btn-sm btn-outline">Edit</button></div>'],
+    ['2', 'Golden Star Trading', 'Ama Serwaa', 'ama@goldenstar.com', '+233-20-555-0202', '<div class="actions"><button class="btn btn-sm btn-outline">Edit</button></div>'],
+    ['3', 'West Africa Imports', 'Kofi Brenya', 'kofi@waimports.com', '+233-27-555-0303', '<div class="actions"><button class="btn btn-sm btn-outline">Edit</button></div>']
+  ]);
+
+  // POS product grid
+  var posGrid = document.getElementById('posProductGrid');
+  var posProducts = [
+    { name: 'Premium Rice (50kg)', price: '$50.00', stock: '124 units' },
+    { name: 'Cooking Oil (5L)', price: '$30.00', stock: '89 units' },
+    { name: 'Sugar (1kg)', price: '$6.00', stock: '8 units' },
+    { name: 'Cement (50kg)', price: '$50.00', stock: '45 units' },
+    { name: 'Detergent (1kg)', price: '$8.00', stock: '156 units' },
+    { name: 'Roofing Sheet (3m)', price: '$28.00', stock: '62 units' },
+    { name: 'Nails (1kg Box)', price: '$12.00', stock: '200 units' },
+    { name: 'Paint (4L)', price: '$35.00', stock: '34 units' },
+    { name: 'Soap Bar (Pack/6)', price: '$4.50', stock: '310 units' },
+    { name: 'Batteries (AA/4pk)', price: '$3.00', stock: '88 units' }
+  ];
+  posGrid.innerHTML = posProducts.map(function(p) {
+    return '<div class="pos-product-card"><div class="product-name">' + p.name + '</div><div class="product-price">' + p.price + '</div><div class="product-stock">' + p.stock + '</div></div>';
+  }).join('');
+
+  // POS cart sample items with price editing
+  var cartItems = document.getElementById('cartItems');
+  cartItems.innerHTML = [
+    { name: 'Premium Rice (50kg)', qty: 2, price: '50.00', origPrice: '50.00', total: '$100.00' },
+    { name: 'Cooking Oil (5L)', qty: 3, price: '28.00', origPrice: '30.00', total: '$84.00' },
+    { name: 'Detergent (1kg)', qty: 5, price: '8.00', origPrice: '8.00', total: '$40.00' }
+  ].map(function(item) {
+    var origDisplay = (item.price !== item.origPrice) ?
+      '<span class="item-original-price">$' + item.origPrice + '</span>' : '';
+    return '<div class="cart-item">' +
+      '<span class="item-name">' + item.name + '</span>' +
+      '<input class="item-qty" type="number" value="' + item.qty + '" readonly>' +
+      '<input class="item-price" type="number" value="' + item.price + '" step="0.01" readonly>' +
+      origDisplay +
+      '<span class="item-total">' + item.total + '</span>' +
+      '<button class="item-remove"><span class="material-symbols-outlined" style="font-size:16px">close</span></button>' +
+    '</div>';
+  }).join('');
+  document.getElementById('cartSubtotal').textContent = '$224.00';
+  document.getElementById('cartTotal').textContent = '$224.30';
+
+  // Sales History table
+  fillTable('salesHistoryTable', [
+    ['#1042', '2026-06-16 14:32', '5', '$235.00', '0%', '$12.50', '$247.50', 'Cash', '<button class="btn btn-sm btn-outline">Receipt</button>'],
+    ['#1041', '2026-06-16 13:18', '2', '$85.00', '0%', '$4.00', '$89.00', 'Mobile Money', '<button class="btn btn-sm btn-outline">Receipt</button>'],
+    ['#1040', '2026-06-16 11:45', '8', '$480.00', '5%', '$32.30', '$512.30', 'Card', '<button class="btn btn-sm btn-outline">Receipt</button>']
+  ]);
+
+  // Purchases table
+  fillTable('purchasesTable', [
+    ['PO-001', '2026-06-14', 'Dangote Industries', '3 items', '$4,200.00', '<span class="badge badge-success">Received</span>'],
+    ['PO-002', '2026-06-12', 'Golden Star Trading', '5 items', '$1,850.00', '<span class="badge badge-success">Received</span>'],
+    ['PO-003', '2026-06-16', 'West Africa Imports', '2 items', '$3,100.00', '<span class="badge badge-warning">Pending</span>']
+  ]);
+
+  // Inventory metrics
+  document.getElementById('invTotalItems').textContent = '4,832';
+  document.getElementById('invTotalValue').textContent = '$312,740';
+  document.getElementById('invLowStock').textContent = '8';
+  document.getElementById('invOutOfStock').textContent = '3';
+
+  // Stock Movement table
+  fillTable('stockMovementTable', [
+    ['2026-06-16 14:32', 'Premium Rice (50kg)', '<span class="badge badge-danger">Sale</span>', '-2', 'Sale #1042'],
+    ['2026-06-16 13:18', 'Cooking Oil (5L)', '<span class="badge badge-danger">Sale</span>', '-1', 'Sale #1041'],
+    ['2026-06-14 09:00', 'Cement (50kg)', '<span class="badge badge-success">Purchase</span>', '+100', 'PO-001'],
+    ['2026-06-14 09:00', 'Roofing Sheet (3m)', '<span class="badge badge-success">Purchase</span>', '+50', 'PO-001'],
+    ['2026-06-12 11:30', 'Sugar (1kg)', '<span class="badge badge-success">Purchase</span>', '+200', 'PO-002']
+  ]);
+
+  // Returns table
+  fillTable('returnsTable', [
+    ['R-001', '2026-06-15', '#1035', 'Premium Blender', '1', 'Defective motor', '<span class="badge badge-danger">No</span>', '$85.00'],
+    ['R-002', '2026-06-13', '#1028', 'Sugar (1kg)', '3', 'Wrong item delivered', '<span class="badge badge-success">Yes</span>', '$18.00']
+  ]);
+
+  // Users table
+  fillTable('usersTable', [
+    ['Joseph Mensah', 'jmensah', '<span class="badge badge-info">Admin</span>', '<span class="badge badge-success">Active</span>', '<div class="actions"><button class="btn btn-sm btn-outline">Edit</button></div>'],
+    ['Akua Boateng', 'aboateng', '<span class="badge badge-neutral">Cashier</span>', '<span class="badge badge-success">Active</span>', '<div class="actions"><button class="btn btn-sm btn-outline">Edit</button></div>'],
+    ['Yaw Frimpong', 'yfrimpong', '<span class="badge badge-neutral">Cashier</span>', '<span class="badge badge-success">Active</span>', '<div class="actions"><button class="btn btn-sm btn-outline">Edit</button></div>'],
+    ['Efua Darko', 'edarko', '<span class="badge badge-warning">Manager</span>', '<span class="badge badge-danger">Inactive</span>', '<div class="actions"><button class="btn btn-sm btn-outline">Edit</button></div>']
+  ]);
+
+  // Insights tables
+  fillTable('insightBestSelling', [
+    ['Premium Rice (50kg)', '342', '$17,100'],
+    ['Cooking Oil (5L)', '289', '$8,670'],
+    ['Sugar (1kg)', '256', '$1,536'],
+    ['Tomato Paste (400g)', '198', '$990'],
+    ['Cement (50kg)', '175', '$8,750']
+  ]);
+  fillTable('insightWorstSelling', [
+    ['Crystal Bowl Set', '0', '$0'],
+    ['Wall Clock (Gold)', '1', '$25'],
+    ['Decorative Vase', '2', '$40'],
+    ['Premium Blender', '3', '$255'],
+    ['Leather Wallet', '4', '$60']
+  ]);
+  fillTable('insightDeadStock', [
+    ['Crystal Bowl Set', '15', '$450'],
+    ['Wall Clock (Gold)', '8', '$320'],
+    ['Decorative Vase', '12', '$240']
+  ]);
+  fillTable('insightRestock', [
+    ['Sugar (1kg)', '8', '25'],
+    ['Tomato Paste (400g)', '0', '40'],
+    ['Flour (2kg)', '5', '20'],
+    ['Batteries (AA/4pk)', '7', '15']
+  ]);
+  fillTable('insightProfitability', [
+    ['Premium Rice (50kg)', '$17,100', '$12,996', '$4,104', '<span style="color:var(--success)">24.0%</span>'],
+    ['Cooking Oil (5L)', '$8,670', '$6,358', '$2,312', '<span style="color:var(--success)">26.7%</span>'],
+    ['Cement (50kg)', '$8,750', '$6,125', '$2,625', '<span style="color:var(--success)">30.0%</span>'],
+    ['Roofing Sheet (3m)', '$4,480', '$2,880', '$1,600', '<span style="color:var(--success)">35.7%</span>'],
+    ['Sugar (1kg)', '$1,536', '$1,152', '$384', '<span style="color:var(--success)">25.0%</span>']
+  ]);
+
+  // Recommendations
+  document.getElementById('insightRecommendations').innerHTML =
+    '<div class="rec-item" style="border-left-color:var(--error)">' +
+      '<span class="rec-icon">&#9888;&#65039;</span>' +
+      '<div class="rec-text"><strong>Restock Tomato Paste immediately</strong>Out of stock with 40-unit reorder level. Lost estimated $165 in sales this week.</div>' +
+    '</div>' +
+    '<div class="rec-item" style="border-left-color:var(--tertiary)">' +
+      '<span class="rec-icon">&#128200;</span>' +
+      '<div class="rec-text"><strong>Increase Rice order quantity</strong>Selling 342 units/month with only 124 in stock. Current stock covers ~11 days at this rate.</div>' +
+    '</div>' +
+    '<div class="rec-item" style="border-left-color:var(--primary)">' +
+      '<span class="rec-icon">&#128161;</span>' +
+      '<div class="rec-text"><strong>Consider discontinuing Crystal Bowl Set</strong>Zero sales in 130 days with $450 tied up in dead stock. Recommend clearance pricing.</div>' +
+    '</div>';
+}
+
+// ═══════ TABLE HELPER ═══════════════════════════════════
+function fillTable(tableId, rows) {
+  var tbody = document.querySelector('#' + tableId + ' tbody');
+  if (!tbody) return;
+  tbody.innerHTML = rows.map(function(row) {
+    return '<tr>' + row.map(function(cell) { return '<td>' + cell + '</td>'; }).join('') + '</tr>';
+  }).join('');
+}
+
+// ═══════ CHART INSTANCES ════════════════════════════════
+var chartInstances = [];
+
+function destroyAllCharts() {
+  chartInstances.forEach(function(c) { c.destroy(); });
+  chartInstances = [];
+}
+
+// ═══════ CHARTS ═════════════════════════════════════════
+function initCharts() {
+  var isLight = document.documentElement.getAttribute('data-theme') === 'light';
+  var labelColor = isLight ? '#5a6a7e' : '#74829d';
+  var gridColor = isLight ? 'rgba(0,0,0,0.06)' : 'rgba(68,71,77,0.08)';
+  var borderColor = isLight ? 'rgba(0,0,0,0.06)' : 'rgba(68,71,77,0.1)';
+
+  // Chart.js global defaults
+  Chart.defaults.color = labelColor;
+  Chart.defaults.borderColor = borderColor;
+  Chart.defaults.font.family = "'Inter', sans-serif";
+
+  // Sales Trend Chart
+  var stCtx = document.getElementById('salesTrendChart');
+  if (stCtx) {
+    chartInstances.push(new Chart(stCtx.getContext('2d'), {
+      type: 'line',
+      data: {
+        labels: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
+        datasets: [{
+          label: 'Revenue',
+          data: [3200, 4100, 3800, 5200, 4827, 6100, 5400],
+          borderColor: isLight ? '#c56b00' : '#ffb77d',
+          backgroundColor: isLight ? 'rgba(197,107,0,0.08)' : 'rgba(255,183,125,0.08)',
+          borderWidth: 2, fill: true, tension: 0.4, pointRadius: 3,
+          pointBackgroundColor: isLight ? '#c56b00' : '#ffb77d'
+        }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          y: { beginAtZero: true, grid: { color: gridColor } },
+          x: { grid: { display: false } }
+        }
+      }
+    }));
+  }
+
+  // Category Sales Chart
+  var csCtx = document.getElementById('categorySalesChart');
+  if (csCtx) {
+    chartInstances.push(new Chart(csCtx.getContext('2d'), {
+      type: 'doughnut',
+      data: {
+        labels: ['Groceries', 'Building', 'Household', 'Electronics', 'Clothing'],
+        datasets: [{
+          data: [42, 25, 18, 10, 5],
+          backgroundColor: isLight
+            ? ['#c56b00', '#1a3a5c', '#2e7d32', '#5a6a7e', '#b3261e']
+            : ['#ffb77d', '#b9c7e4', '#81c784', '#74829d', '#ffb4ab'],
+          borderWidth: 0
+        }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { position: 'bottom', labels: { padding: 16, usePointStyle: true, pointStyleWidth: 8, font: { size: 11 } } } },
+        cutout: '65%'
+      }
+    }));
+  }
+
+  // Report Chart
+  var rpCtx = document.getElementById('reportChart');
+  if (rpCtx) {
+    chartInstances.push(new Chart(rpCtx.getContext('2d'), {
+      type: 'bar',
+      data: {
+        labels: ['Jun 10', 'Jun 11', 'Jun 12', 'Jun 13', 'Jun 14', 'Jun 15', 'Jun 16'],
+        datasets: [{
+          label: 'Daily Revenue',
+          data: [2890, 3450, 4120, 3780, 5200, 4100, 4827],
+          backgroundColor: isLight ? 'rgba(197,107,0,0.6)' : 'rgba(255,183,125,0.6)',
+          borderRadius: 4
+        }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          y: { beginAtZero: true, grid: { color: gridColor } },
+          x: { grid: { display: false } }
+        }
+      }
+    }));
+  }
+
+  // Peak Days Chart (Insights)
+  var pdCtx = document.getElementById('peakDaysChart');
+  if (pdCtx) {
+    chartInstances.push(new Chart(pdCtx.getContext('2d'), {
+      type: 'bar',
+      data: {
+        labels: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
+        datasets: [{
+          label: 'Transactions',
+          data: [22, 28, 25, 34, 31, 45, 38],
+          backgroundColor: isLight ? 'rgba(197,107,0,0.6)' : 'rgba(255,183,125,0.6)',
+          borderRadius: 4
+        }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          y: { beginAtZero: true, grid: { color: gridColor } },
+          x: { grid: { display: false } }
+        }
+      }
+    }));
+  }
+
+  // Revenue by Category Chart (Insights)
+  var rcCtx = document.getElementById('revenueCategoryChart');
+  if (rcCtx) {
+    chartInstances.push(new Chart(rcCtx.getContext('2d'), {
+      type: 'bar',
+      data: {
+        labels: ['Groceries', 'Building', 'Household', 'Electronics', 'Clothing'],
+        datasets: [{
+          label: 'Revenue ($)',
+          data: [39540, 23530, 16940, 9415, 4710],
+          backgroundColor: isLight
+            ? ['#c56b00', '#1a3a5c', '#2e7d32', '#5a6a7e', '#b3261e']
+            : ['#ffb77d', '#b9c7e4', '#81c784', '#74829d', '#ffb4ab'],
+          borderRadius: 4
+        }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        indexAxis: 'y',
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { beginAtZero: true, grid: { color: gridColor } },
+          y: { grid: { display: false } }
+        }
+      }
+    }));
+  }
+}
+
+// ═══════ INITIALIZE — Show setup screen by default ═════
+document.getElementById('setupScreen').classList.remove('hidden');
+document.getElementById('loginScreen').classList.add('hidden');
+document.getElementById('appContainer').classList.add('hidden');
+</script>
+</body>
+</html>
