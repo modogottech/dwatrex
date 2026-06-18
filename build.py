@@ -64,7 +64,10 @@ VSVersionInfo(
   ]
 )
 """
-    with open(VERSION_FILE, 'w') as f:
+    # Must be UTF-8: the content contains an em-dash, and PyInstaller reads
+    # this file as UTF-8. Without an explicit encoding, Windows writes cp1252
+    # and PyInstaller fails with a UnicodeDecodeError.
+    with open(VERSION_FILE, 'w', encoding='utf-8') as f:
         f.write(content)
     print(f"Version info created: {VERSION_FILE}")
 
