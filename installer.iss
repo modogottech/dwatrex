@@ -54,8 +54,8 @@ UninstallDisplayName={#AppName}
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
-Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription: "Additional shortcuts:"; Flags: checked
-Name: "startmenu"; Description: "Create a &Start Menu entry"; GroupDescription: "Additional shortcuts:"; Flags: checked
+Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription: "Additional shortcuts:"
+Name: "startmenu"; Description: "Create a &Start Menu entry"; GroupDescription: "Additional shortcuts:"
 
 [Files]
 ; Include the entire PyInstaller dist/Dwatrex folder
