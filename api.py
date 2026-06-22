@@ -55,8 +55,13 @@ class StoreHubAPI:
 
     # ── First-Run Setup ────────────────────────────────────
     def check_first_run(self):
-        """Returns whether setup is needed."""
-        return self._ok({'setupNeeded': not db.is_setup_complete()})
+        """Returns whether setup is needed.
+
+        Setup is needed if the first-run flag isn't set OR if there are no user
+        accounts at all — the latter guards against ever showing a login screen
+        with no account to log into (e.g. an interrupted setup)."""
+        needs = (not db.is_setup_complete()) or (db.user_count() == 0)
+        return self._ok({'setupNeeded': needs})
 
     def complete_setup(self, store_name, admin_name, admin_username, admin_password):
         """Complete first-run setup: create admin and mark as done."""
@@ -635,3 +640,31 @@ class StoreHubAPI:
         err = self._require_auth()
         if err: return err
         return self._ok(db.query("SELECT * FROM products ORDER BY name"))
+
+    # ── File saving (CSV templates / exports) ───────────────
+    def save_text_file(self, filename, content):
+        """Save text to a user-chosen location via the OS Save dialog.
+
+        Needed because a browser-style blob download (<a download>) does not
+        work inside the desktop webview — this drives pywebview's native
+        Save-As dialog and writes the file from Python instead."""
+        err = self._require_auth()
+        if err: return err
+        try:
+            import webview
+            win = None
+            if hasattr(webview, 'active_window') and webview.active_window():
+                win = webview.active_window()
+            elif getattr(webview, 'windows', None):
+                win = webview.windows[0]
+            if win is None:
+                return self._err("No application window available")
+            result = win.create_file_dialog(webview.SAVE_DIALOG, save_filename=filename)
+            if not result:
+                return self._ok({'cancelled': True}, "Save cancelled")
+            path = result[0] if isinstance(result, (list, tuple)) else result
+            with open(path, 'w', encoding='utf-8', newline='') as f:
+                f.write(content)
+            return self._ok({'path': path}, "File saved")
+        except Exception as e:
+            return self._err(f"Could not save file: {e}")

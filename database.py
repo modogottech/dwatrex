@@ -194,6 +194,14 @@ def is_setup_complete():
     return row is not None and row['value'] == '1'
 
 
+def user_count():
+    """Number of user accounts in the database."""
+    conn = get_conn()
+    n = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+    conn.close()
+    return n
+
+
 def complete_first_run_setup(store_name, admin_name, admin_username, admin_password):
     """Complete first-run setup: create admin account and mark setup done."""
     conn = get_conn()

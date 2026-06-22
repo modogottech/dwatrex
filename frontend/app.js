@@ -84,21 +84,22 @@ window.addEventListener('pywebviewready', () => { checkFirstRun(); });
 setTimeout(() => { if (!window.pywebview) console.warn('pywebview not found — running in browser-only mode'); }, 2000);
 
 // ═══════ FIRST-RUN CHECK ══════════════════════════════════
-async function checkFirstRun() {
-  try {
-    const res = await api('check_first_run');
-    if (res.ok && res.data.setupNeeded) {
-      document.getElementById('setupScreen').classList.remove('hidden');
-      document.getElementById('loginScreen').classList.add('hidden');
-    } else {
-      document.getElementById('setupScreen').classList.add('hidden');
-      document.getElementById('loginScreen').classList.remove('hidden');
-    }
-    document.getElementById('appContainer').classList.add('hidden');
-  } catch(e) {
-    // Fallback: show login
+async function checkFirstRun(attempt = 0) {
+  const res = await api('check_first_run');
+  // The JS↔Python bridge can be momentarily unready right after launch.
+  // Retry instead of falling through to the login screen (a dead end on a
+  // fresh install, where no account exists yet).
+  if (!res.ok) {
+    if (attempt < 15) { setTimeout(() => checkFirstRun(attempt + 1), 250); return; }
+    document.getElementById('setupScreen').classList.add('hidden');
     document.getElementById('loginScreen').classList.remove('hidden');
+    document.getElementById('appContainer').classList.add('hidden');
+    return;
   }
+  const needSetup = !!res.data.setupNeeded;
+  document.getElementById('setupScreen').classList.toggle('hidden', !needSetup);
+  document.getElementById('loginScreen').classList.toggle('hidden', needSetup);
+  document.getElementById('appContainer').classList.add('hidden');
 }
 
 // ═══════ SETUP WIZARD ═════════════════════════════════════
@@ -1197,7 +1198,15 @@ async function importProducts() {
   }
 }
 
-function downloadCSV(content, filename) {
+async function downloadCSV(content, filename) {
+  // In the desktop app, save through the native dialog (blob downloads don't
+  // work inside the webview). Fall back to a blob download in a plain browser.
+  if (window.pywebview && window.pywebview.api && window.pywebview.api.save_text_file) {
+    const res = await api('save_text_file', filename, content);
+    if (res.ok) { if (!(res.data && res.data.cancelled)) showToast('File saved'); }
+    else showToast(res.msg || 'Could not save file', 'error');
+    return;
+  }
   const blob = new Blob([content], { type: 'text/csv' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
