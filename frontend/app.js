@@ -10,6 +10,9 @@ let chartInstances = {};
 let cachedProducts = [];
 let cachedSales = [];
 let posProducts = [];
+// Store profile shown on receipts (populated from Settings at login).
+let storeInfo = { name: '', address: '', phone: '', email: '', logo: '' };
+let logoDataUrl = '';  // working value while editing the Settings page
 
 const fmt = d => new Date(d).toISOString().split('T')[0];
 const fmtDate = d => new Date(d).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
@@ -293,13 +296,21 @@ async function initApp() {
   refreshPage('dashboard');
 }
 
-// Pull store settings (currency, tax) so they drive the whole UI.
+// Pull store settings (currency, tax, store profile) so they drive the whole UI.
 async function applySettings() {
   const res = await api('get_settings');
   if (res.ok && res.data) {
-    if (res.data.currency) currencySymbol = res.data.currency;
+    const d = res.data;
+    if (d.currency) currencySymbol = d.currency;
     const taxEl = document.getElementById('cartTax');
-    if (taxEl && res.data.taxRate != null && res.data.taxRate !== '') taxEl.value = res.data.taxRate;
+    if (taxEl && d.taxRate != null && d.taxRate !== '') taxEl.value = d.taxRate;
+    storeInfo = {
+      name: d.storeName || '',
+      address: d.storeAddress || '',
+      phone: d.storePhone || '',
+      email: d.storeEmail || '',
+      logo: d.storeLogo || '',
+    };
   }
 }
 
@@ -614,8 +625,20 @@ async function completeSale() {
 
 function showReceipt(sale) {
   const items = sale.items||[];
+  const si = storeInfo;
+  const name = si.name || 'DWATREX';
+  const logoOk = si.logo && si.logo.startsWith('data:image/');
+  const contactBits = [];
+  if (si.phone) contactBits.push('Tel: ' + si.phone);
+  if (si.email) contactBits.push(si.email);
+  const header = `
+    ${logoOk ? `<img src="${si.logo}" class="receipt-logo" alt="">` : ''}
+    <strong>${esc(name)}</strong>
+    ${si.address ? `<div class="receipt-shop-line">${esc(si.address)}</div>` : ''}
+    ${contactBits.length ? `<div class="receipt-shop-line">${esc(contactBits.join('  •  '))}</div>` : ''}
+    <div class="receipt-shop-line">Receipt #${sale.id} &middot; ${fmtDate(sale.date)}</div>`;
   document.getElementById('receiptContent').innerHTML=`
-    <div class="receipt-header"><strong>DWATREX</strong><br>Receipt #${sale.id}<br>${fmtDate(sale.date)}</div>
+    <div class="receipt-header">${header}</div>
     ${items.map(i=>`<div class="receipt-line"><span>${esc(i.name)} x${i.qty}</span><span>${money(i.qty*i.unitPrice)}</span></div>`).join('')}
     <div class="receipt-divider"></div>
     <div class="receipt-line"><span>Subtotal</span><span>${money(sale.subtotal)}</span></div>
@@ -1189,20 +1212,61 @@ async function loadSettings() {
   const d = (res.ok && res.data) ? res.data : {};
   const setVal = (id, v) => { const el=document.getElementById(id); if(el && v!=null && v!=='') el.value=v; };
   setVal('settingStoreName', d.storeName);
+  setVal('settingStoreAddress', d.storeAddress);
+  setVal('settingStorePhone', d.storePhone);
+  setVal('settingStoreEmail', d.storeEmail);
   setVal('settingCurrency', d.currency);
   setVal('settingTaxRate', d.taxRate);
   setVal('settingLowStock', d.lowStockThreshold);
   setVal('settingFastMoving', d.fastMovingThreshold);
   setVal('settingSlowMoving', d.slowMovingThreshold);
+  logoDataUrl = d.storeLogo || '';
+  showLogoPreview(logoDataUrl);
 }
 
 async function saveSettings() {
-  const s={storeName:document.getElementById('settingStoreName').value, currency:document.getElementById('settingCurrency').value.trim()||'GH₵',
+  const s={
+    storeName:document.getElementById('settingStoreName').value,
+    storeAddress:document.getElementById('settingStoreAddress').value,
+    storePhone:document.getElementById('settingStorePhone').value,
+    storeEmail:document.getElementById('settingStoreEmail').value,
+    storeLogo:logoDataUrl,
+    currency:document.getElementById('settingCurrency').value.trim()||'GH₵',
     taxRate:document.getElementById('settingTaxRate').value, lowStockThreshold:document.getElementById('settingLowStock').value,
     fastMovingThreshold:document.getElementById('settingFastMoving').value, slowMovingThreshold:document.getElementById('settingSlowMoving').value};
   const res = await api('save_settings',JSON.stringify(s));
   if (!res.ok) { showToast(res.msg, 'error'); return; }
   currencySymbol = s.currency;          // take effect immediately, app-wide
   const taxEl = document.getElementById('cartTax'); if (taxEl) taxEl.value = s.taxRate;
+  storeInfo = { name:s.storeName, address:s.storeAddress, phone:s.storePhone, email:s.storeEmail, logo:s.storeLogo };
   showToast('Settings saved');
+}
+
+// ── Logo upload (optional; stored as a data URL in settings) ──
+function handleLogoUpload(input) {
+  const file = input.files && input.files[0];
+  if (!file) return;
+  if (file.size > 1024 * 1024) { showToast('Logo too large (max 1 MB)', 'error'); input.value=''; return; }
+  const reader = new FileReader();
+  reader.onload = e => {
+    const url = e.target.result;
+    if (typeof url !== 'string' || !url.startsWith('data:image/')) { showToast('Please choose an image file', 'error'); return; }
+    logoDataUrl = url;
+    showLogoPreview(url);
+  };
+  reader.readAsDataURL(file);
+  input.value = '';
+}
+function removeLogo() { logoDataUrl=''; showLogoPreview(''); }
+function showLogoPreview(url) {
+  const img = document.getElementById('settingLogoPreview');
+  const rm = document.getElementById('settingLogoRemove');
+  if (!img) return;
+  if (url && url.startsWith('data:image/')) {
+    img.src = url; img.classList.remove('hidden');
+    if (rm) rm.classList.remove('hidden');
+  } else {
+    img.removeAttribute('src'); img.classList.add('hidden');
+    if (rm) rm.classList.add('hidden');
+  }
 }

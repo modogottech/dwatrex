@@ -18,6 +18,8 @@ import unittest
 # because database.py resolves DB_PATH at import time.
 _TMP_DB = os.path.join(tempfile.mkdtemp(prefix="dwatrex_test_"), "test.db")
 os.environ["DWATREX_DB"] = _TMP_DB
+# Tests exercise sample products and demo user accounts, so opt into demo data.
+os.environ["DWATREX_DEMO"] = "1"
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import database as db          # noqa: E402

@@ -160,11 +160,30 @@ def init_db():
     """)
     conn.commit()
 
-    # ── Seed only if empty (demo data for categories/products/sales) ──
-    if c.execute("SELECT COUNT(*) FROM categories").fetchone()[0] == 0:
-        _seed(conn)
+    # Always ensure default settings exist (currency, tax, thresholds, etc.).
+    _seed_settings(conn)
+
+    # Demo data (sample products, sales, AND demo user accounts) is OFF by
+    # default so shipped builds start clean. Enable it for trials/development
+    # by setting the environment variable DWATREX_DEMO=1 before first launch.
+    if os.environ.get('DWATREX_DEMO') == '1':
+        if c.execute("SELECT COUNT(*) FROM categories").fetchone()[0] == 0:
+            _seed_demo(conn)
 
     conn.close()
+
+
+def _seed_settings(conn):
+    """Insert default settings if they don't already exist (idempotent)."""
+    c = conn.cursor()
+    defaults = {
+        'storeName': 'My Store', 'storeAddress': '', 'storePhone': '', 'storeEmail': '',
+        'currency': 'GH₵', 'taxRate': '7.5',
+        'lowStockThreshold': '10', 'fastMovingThreshold': '50', 'slowMovingThreshold': '5',
+    }
+    for k, v in defaults.items():
+        c.execute("INSERT OR IGNORE INTO settings(key,value) VALUES(?,?)", (k, v))
+    conn.commit()
 
 
 def is_setup_complete():
@@ -218,7 +237,9 @@ def authenticate_user(username, password):
     return user
 
 
-def _seed(conn):
+def _seed_demo(conn):
+    """Populate sample data for trials/development. NOT used in shipped builds
+    unless DWATREX_DEMO=1 is set. Includes demo user accounts."""
     c = conn.cursor()
 
     # Categories
@@ -296,13 +317,7 @@ def _seed(conn):
     for u in users:
         c.execute("INSERT INTO users(name,username,password,role,status) VALUES(?,?,?,?,?)", u)
 
-    # Settings
-    defaults = {
-        'storeName': 'Dwatrex Demo Store', 'currency': 'GH₵', 'taxRate': '7.5',
-        'lowStockThreshold': '10', 'fastMovingThreshold': '50', 'slowMovingThreshold': '5',
-    }
-    for k, v in defaults.items():
-        c.execute("INSERT OR IGNORE INTO settings(key,value) VALUES(?,?)", (k, v))
+    # (Settings defaults are seeded separately in _seed_settings.)
 
     # ── Generate 60 days of sample sales ──
     all_products = c.execute("SELECT * FROM products").fetchall()
