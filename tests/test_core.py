@@ -210,5 +210,39 @@ class ResetUtilityTests(BaseCase):
         self.assertIn("No user", msg)
 
 
+class ExpenseTests(BaseCase):
+    def setUp(self):
+        super().setUp()
+        self.login_as("admin")
+        self.today = __import__("datetime").date.today().isoformat()
+
+    def test_add_and_total(self):
+        self.assertTrue(self.call("save_expense", None, self.today, "Rent", "Shop rent", "1,200.00", "Bank")["ok"])
+        self.assertTrue(self.call("save_expense", None, self.today, "Utilities", "ECG", "GH₵300", "Cash")["ok"])
+        rows = self.call("get_expenses", self.today, self.today)["data"]
+        self.assertEqual(len(rows), 2)
+        self.assertAlmostEqual(sum(r["amount"] for r in rows), 1500.0, places=2)
+
+    def test_amount_must_be_positive(self):
+        res = self.call("save_expense", None, self.today, "Rent", "", "0", "Cash")
+        self.assertFalse(res["ok"])
+
+    def test_cashier_blocked(self):
+        self.login_as("cashier")
+        self.assertFalse(self.call("get_expenses")["ok"])
+        self.assertFalse(self.call("save_expense", None, self.today, "Rent", "", "10", "Cash")["ok"])
+
+    def test_profit_loss_math(self):
+        # Assert the P&L relationships hold (robust to any seeded sales in range).
+        self.call("save_expense", None, self.today, "Rent", "", "30", "Cash")
+        pl = self.call("get_profit_loss", self.today, self.today)["data"]
+        self.assertAlmostEqual(pl["gross"], pl["revenue"] - pl["cogs"], places=2)
+        self.assertGreaterEqual(pl["expensesTotal"], 30.0)         # at least our expense
+        self.assertAlmostEqual(pl["net"], pl["gross"] - pl["expensesTotal"], places=2)
+
+    def test_dashboard_net_profit_present(self):
+        self.assertIn("netProfit", self.call("get_dashboard_data")["data"])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

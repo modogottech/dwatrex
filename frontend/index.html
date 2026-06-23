@@ -118,6 +118,9 @@
       <a href="#" class="nav-item" data-page="insights" onclick="navigateTo('insights',this)">
         <span class="material-symbols-outlined">psychology</span><span>Intelligence</span>
       </a>
+      <a href="#" class="nav-item" data-page="expenses" onclick="navigateTo('expenses',this)">
+        <span class="material-symbols-outlined">account_balance_wallet</span><span>Expenses</span>
+      </a>
       <a href="#" class="nav-item" data-page="users" onclick="navigateTo('users',this)">
         <span class="material-symbols-outlined">group</span><span>Users</span>
       </a>
@@ -197,8 +200,12 @@
           <div class="metric-value" id="metricLowStock">0</div>
         </div>
         <div class="metric-card">
-          <div class="metric-label">Gross Profit</div>
+          <div class="metric-label">Gross Profit (30d)</div>
           <div class="metric-value" id="metricProfit">$0</div>
+        </div>
+        <div class="metric-card accent-orange">
+          <div class="metric-label">Net Profit (30d)</div>
+          <div class="metric-value" id="metricNetProfit">$0</div>
         </div>
         <div class="metric-card accent-blue">
           <div class="metric-label">Total Products</div>
@@ -397,7 +404,8 @@
           <option value="monthlySales">Monthly Sales Report</option>
           <option value="salesByProduct">Sales by Product</option>
           <option value="salesByCategory">Sales by Category</option>
-          <option value="profitByPeriod">Profit by Period</option>
+          <option value="profitByPeriod">Profit by Period (Gross)</option>
+          <option value="profitLoss">Profit &amp; Loss (Net)</option>
           <option value="inventoryValuation">Inventory Valuation</option>
           <option value="lowStock">Low Stock Report</option>
           <option value="stockMovement">Stock Movement</option>
@@ -502,6 +510,39 @@
           <div class="card-header"><h3>Profitability by Product</h3><span class="card-meta" id="profitMeta"></span></div>
           <table class="data-table" id="insightProfitability"><thead><tr><th>Product</th><th>Revenue</th><th>Cost</th><th>Profit</th><th>Margin</th></tr></thead><tbody></tbody></table>
         </div>
+      </div>
+    </section>
+
+    <!-- ═══════ EXPENSES ════════════════════════════════════ -->
+    <section id="page-expenses" class="page">
+      <div class="page-title-section">
+        <h2>Expenses</h2>
+        <p>Record running costs like rent, utilities, and salaries</p>
+      </div>
+      <div class="metric-cards">
+        <div class="metric-card accent-red">
+          <div class="metric-label">Total Expenses (range)</div>
+          <div class="metric-value" id="expTotal">GH₵0</div>
+        </div>
+        <div class="metric-card accent-blue">
+          <div class="metric-label">Entries</div>
+          <div class="metric-value" id="expCount">0</div>
+        </div>
+      </div>
+      <div class="page-header">
+        <div class="page-actions">
+          <label style="font-size:0.6rem;font-weight:700;color:var(--outline);text-transform:uppercase;letter-spacing:0.15em">From</label>
+          <input type="date" id="expenseFrom" onchange="renderExpenses()">
+          <label style="font-size:0.6rem;font-weight:700;color:var(--outline);text-transform:uppercase;letter-spacing:0.15em">To</label>
+          <input type="date" id="expenseTo" onchange="renderExpenses()">
+          <button class="btn btn-primary" onclick="openExpenseModal()"><span class="material-symbols-outlined">add</span> Add Expense</button>
+        </div>
+      </div>
+      <div class="card">
+        <table class="data-table" id="expensesTable">
+          <thead><tr><th>Date</th><th>Category</th><th>Description</th><th>Amount</th><th>Payment</th><th>Recorded By</th><th>Actions</th></tr></thead>
+          <tbody></tbody>
+        </table>
       </div>
     </section>
 

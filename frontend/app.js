@@ -178,8 +178,8 @@ async function handleLogout() {
   document.getElementById('loginError').style.display = 'none';
 }
 const ROLE_PERMS = {
-  admin:['dashboard','products','categories','suppliers','sales','purchases','inventory','returns','reports','insights','users','settings'],
-  manager:['dashboard','products','categories','suppliers','sales','purchases','inventory','returns','reports','insights'],
+  admin:['dashboard','products','categories','suppliers','sales','purchases','inventory','returns','reports','insights','expenses','users','settings'],
+  manager:['dashboard','products','categories','suppliers','sales','purchases','inventory','returns','reports','insights','expenses'],
   cashier:['dashboard','sales','returns'],
   inventory:['dashboard','products','categories','suppliers','purchases','inventory'],
 };
@@ -205,7 +205,7 @@ const PAGE_TITLES = {
   suppliers:'Supply Chain', sales:'POS Command', purchases:'Purchase Orders',
   inventory:'Inventory Intelligence', returns:'Returns Management',
   reports:'Capital Analytics', insights:'Intelligence Center',
-  users:'User Management', settings:'System Settings'
+  expenses:'Expenses', users:'User Management', settings:'System Settings'
 };
 
 // Map pages to topbar tabs
@@ -213,7 +213,7 @@ const PAGE_TAB_MAP = {
   dashboard:'dashboard', products:'inventory', categories:'inventory',
   suppliers:'inventory', sales:'sales', purchases:'inventory',
   inventory:'inventory', returns:'sales', reports:'reports',
-  insights:'reports', users:'dashboard', settings:'dashboard'
+  insights:'reports', expenses:'reports', users:'dashboard', settings:'dashboard'
 };
 
 function navigateTo(page, el) {
@@ -292,8 +292,8 @@ async function initApp() {
   await populateFilters();
   const today = fmt(new Date());
   const ago30 = fmt(daysAgo(30));
-  ['salesHistoryFrom','reportFrom','insightFrom'].forEach(id => { const el=document.getElementById(id); if(el) el.value=ago30; });
-  ['salesHistoryTo','reportTo','insightTo'].forEach(id => { const el=document.getElementById(id); if(el) el.value=today; });
+  ['salesHistoryFrom','reportFrom','insightFrom','expenseFrom'].forEach(id => { const el=document.getElementById(id); if(el) el.value=ago30; });
+  ['salesHistoryTo','reportTo','insightTo','expenseTo'].forEach(id => { const el=document.getElementById(id); if(el) el.value=today; });
   refreshPage('dashboard');
 }
 
@@ -327,6 +327,7 @@ async function refreshPage(page) {
     case 'returns': await renderReturns(); break;
     case 'reports': await generateReport(); break;
     case 'insights': await renderInsights(); break;
+    case 'expenses': await renderExpenses(); break;
     case 'users': await renderUsers(); break;
     case 'settings': await loadSettings(); break;
   }
@@ -363,6 +364,8 @@ async function renderDashboard() {
   document.getElementById('metricInventoryVal').textContent = money(d.inventoryValue);
   document.getElementById('metricLowStock').textContent = d.lowStock;
   document.getElementById('metricProfit').textContent = money(d.profit);
+  const np = document.getElementById('metricNetProfit');
+  if (np) np.textContent = money(d.netProfit != null ? d.netProfit : d.profit);
   document.getElementById('metricProducts').textContent = d.totalProducts;
 
   const sr = await api('get_sales_for_period', fmt(daysAgo(30)), fmt(new Date()));
@@ -867,6 +870,21 @@ async function generateReport() {
         options:{responsive:true,maintainAspectRatio:false,scales:{y:{ticks:{color:c.text,callback:v=>'$'+v},grid:{color:c.grid}},x:{ticks:{color:c.text,maxTicksLimit:10}}},plugins:{legend:{labels:{color:c.text}}}}});
       thead.innerHTML='<tr><th>Date</th><th>Revenue</th><th>Cost</th><th>Profit</th></tr>';
       tbody.innerHTML=entries.map(([d,v])=>`<tr><td>${d}</td><td>${money(v.revenue)}</td><td>${money(v.cost)}</td><td>${money(v.revenue-v.cost)}</td></tr>`).join(''); break; }
+    case 'profitLoss': {
+      const plr = await api('get_profit_loss', from, to);
+      const d = plr.ok ? plr.data : {revenue:0,cogs:0,gross:0,byCategory:[],expensesTotal:0,net:0};
+      reportChartInstance=new Chart(ctx,{type:'bar',data:{labels:['Revenue','Cost of Goods','Gross Profit','Expenses','Net Profit'],
+        datasets:[{label:'Amount',data:[d.revenue,d.cogs,d.gross,d.expensesTotal,d.net],
+          backgroundColor:['#b9c7e4','#ffb4ab','#81c784','#ffb77d', d.net>=0?'#34d399':'#ff6b6b'],borderRadius:3}]},
+        options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{ticks:{color:c.text,callback:v=>'$'+v},grid:{color:c.grid}},x:{ticks:{color:c.text}}}}});
+      thead.innerHTML='<tr><th>Profit &amp; Loss</th><th style="text-align:right">Amount</th></tr>';
+      let b=`<tr><td>Revenue (sales)</td><td style="text-align:right">${money(d.revenue)}</td></tr>
+        <tr><td>Less: Cost of Goods Sold</td><td style="text-align:right">(${money(d.cogs)})</td></tr>
+        <tr style="font-weight:700"><td>Gross Profit</td><td style="text-align:right">${money(d.gross)}</td></tr>`;
+      (d.byCategory||[]).forEach(e=>{ b+=`<tr><td style="padding-left:1.5rem;color:var(--on-surface-variant)">Less: ${esc(e.category)}</td><td style="text-align:right">(${money(e.amount)})</td></tr>`; });
+      b+=`<tr><td>Total Operating Expenses</td><td style="text-align:right">(${money(d.expensesTotal)})</td></tr>
+        <tr style="font-weight:800"><td>Net Profit</td><td style="text-align:right;color:${d.net>=0?'var(--success)':'var(--error)'}">${money(d.net)}</td></tr>`;
+      tbody.innerHTML=b; break; }
     case 'inventoryValuation': {
       const allP=(await api('get_all_products')).data||[];
       thead.innerHTML='<tr><th>Product</th><th>SKU</th><th>Stock</th><th>Cost Price</th><th>Total Value</th></tr>';
@@ -1018,6 +1036,71 @@ async function renderInsights() {
   } finally {
     if(status){ status.textContent=''; status.classList.remove('busy'); }
   }
+}
+
+// ═══════ EXPENSES ════════════════════════════════════════
+const EXPENSE_CATEGORIES = ['Rent','Utilities','Salaries','Transport','Supplies','Marketing','Maintenance','Bank Charges','Other'];
+
+async function renderExpenses() {
+  const from = document.getElementById('expenseFrom')?.value || fmt(daysAgo(30));
+  const to = document.getElementById('expenseTo')?.value || fmt(new Date());
+  const res = await api('get_expenses', from, to);
+  const rows = res.ok ? res.data : [];
+  const total = rows.reduce((s, e) => s + Number(e.amount || 0), 0);
+  const tEl = document.getElementById('expTotal'); if (tEl) tEl.textContent = money(total);
+  const cEl = document.getElementById('expCount'); if (cEl) cEl.textContent = rows.length;
+  document.querySelector('#expensesTable tbody').innerHTML = rows.map(e => `
+    <tr><td>${fmtDate(e.date)}</td><td>${esc(e.category)}</td><td>${esc(e.description)}</td>
+    <td>${money(e.amount)}</td><td>${esc(e.payment)}</td><td>${esc(e.created_by)}</td>
+    <td class="actions">
+      <button class="btn btn-sm btn-outline" aria-label="Edit expense" onclick="openExpenseModal(${e.id})"><span class="material-symbols-outlined" style="font-size:14px">edit</span></button>
+      <button class="btn btn-sm btn-danger" aria-label="Delete expense" onclick="deleteExpense(${e.id})"><span class="material-symbols-outlined" style="font-size:14px">delete</span></button>
+    </td></tr>`).join('') || emptyRow(7, 'account_balance_wallet', 'No expenses recorded in this range');
+}
+
+let _expenseCache = [];
+async function openExpenseModal(id) {
+  let e = null;
+  if (id) {
+    const r = await api('get_expenses', '', '');
+    e = (r.data || []).find(x => x.id === id);
+  }
+  const catOpts = EXPENSE_CATEGORIES.map(c =>
+    `<option value="${c}" ${e && e.category === c ? 'selected' : ''}>${c}</option>`).join('');
+  const payOpts = ['Cash','Mobile Money','Card','Bank Transfer'].map(p =>
+    `<option ${e && e.payment === p ? 'selected' : ''}>${p}</option>`).join('');
+  openModal(e ? 'Edit Expense' : 'Add Expense', `
+    <form onsubmit="saveExpense(event,${id || 'null'})">
+      <div class="form-row">
+        <div class="form-group"><label>Date *</label><input type="date" id="expDate" value="${e ? esc(e.date) : fmt(new Date())}" required></div>
+        <div class="form-group"><label>Category *</label><select id="expCategory" required>${catOpts}</select></div>
+      </div>
+      <div class="form-group"><label>Description</label><input id="expDesc" value="${e ? esc(e.description) : ''}" placeholder="e.g. March electricity bill"></div>
+      <div class="form-row">
+        <div class="form-group"><label>Amount *</label><input type="number" step="0.01" min="0" id="expAmount" value="${e ? e.amount : ''}" required></div>
+        <div class="form-group"><label>Payment</label><select id="expPayment">${payOpts}</select></div>
+      </div>
+      <button type="submit" class="btn btn-primary btn-block">${e ? 'Update' : 'Add'} Expense</button>
+    </form>`);
+}
+
+async function saveExpense(ev, id) {
+  ev.preventDefault();
+  const res = await api('save_expense', id,
+    document.getElementById('expDate').value,
+    document.getElementById('expCategory').value,
+    document.getElementById('expDesc').value.trim(),
+    document.getElementById('expAmount').value,
+    document.getElementById('expPayment').value);
+  if (!res.ok) { showToast(res.msg, 'error'); return; }
+  closeModal(); showToast('Expense saved'); renderExpenses();
+}
+
+async function deleteExpense(id) {
+  if (!confirm('Delete this expense?')) return;
+  const res = await api('delete_expense', id);
+  if (!res.ok) { showToast(res.msg, 'error'); return; }
+  showToast('Expense deleted'); renderExpenses();
 }
 
 // ═══════ USERS ═══════════════════════════════════════════

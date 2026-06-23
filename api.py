@@ -29,9 +29,10 @@ def _to_number(value, default=0.0):
 ROLE_PERMS = {
     'admin':     {'dashboard', 'products', 'categories', 'suppliers', 'sales',
                   'purchases', 'inventory', 'returns', 'reports', 'insights',
-                  'users', 'settings'},
+                  'expenses', 'users', 'settings'},
     'manager':   {'dashboard', 'products', 'categories', 'suppliers', 'sales',
-                  'purchases', 'inventory', 'returns', 'reports', 'insights'},
+                  'purchases', 'inventory', 'returns', 'reports', 'insights',
+                  'expenses'},
     'cashier':   {'dashboard', 'sales', 'returns'},
     'inventory': {'dashboard', 'products', 'categories', 'suppliers',
                   'purchases', 'inventory'},
@@ -629,6 +630,10 @@ class StoreHubAPI:
                 cost += item['qty'] * item.get('costPrice', 0)
         profit = revenue - cost
 
+        # Operating expenses last 30 days -> net profit
+        month_expenses = db.query("SELECT COALESCE(SUM(amount),0) as v FROM expenses WHERE date >= ?", (month_ago,))[0]['v']
+        net_profit = profit - month_expenses
+
         return self._ok({
             'todaySales': today_sales[0]['v'],
             'weekSales': week_sales[0]['v'],
@@ -637,6 +642,8 @@ class StoreHubAPI:
             'inventoryValue': inv_value,
             'lowStock': low_stock,
             'profit': profit,
+            'expenses': month_expenses,
+            'netProfit': net_profit,
             'totalProducts': total_prods,
         })
 
@@ -654,6 +661,75 @@ class StoreHubAPI:
         err = self._require_auth()
         if err: return err
         return self._ok(db.query("SELECT * FROM products ORDER BY name"))
+
+    # ── Expenses (operating costs: rent, utilities, salaries…) ──
+    def get_expenses(self, date_from="", date_to=""):
+        err = self._require_perm('expenses')
+        if err: return err
+        sql = "SELECT * FROM expenses WHERE 1=1"
+        params = []
+        if date_from:
+            sql += " AND date >= ?"; params.append(date_from)
+        if date_to:
+            sql += " AND date <= ?"; params.append(date_to + "T23:59:59")
+        sql += " ORDER BY date DESC, id DESC"
+        return self._ok(db.query(sql, params))
+
+    def save_expense(self, id, date, category, description, amount, payment):
+        err = self._require_perm('expenses')
+        if err: return err
+        try:
+            amt = _to_number(amount)
+            if amt <= 0:
+                return self._err("Amount must be greater than zero")
+            date = (str(date).strip() or datetime.now().strftime('%Y-%m-%d'))
+            category = (str(category).strip() or 'Other')
+            description = str(description or '').strip()
+            payment = str(payment or '').strip()
+            with db.transaction() as conn:
+                if id:
+                    conn.execute("UPDATE expenses SET date=?,category=?,description=?,amount=?,payment=? WHERE id=?",
+                                 (date, category, description, amt, payment, id))
+                else:
+                    by = self._current_user['name'] if self._current_user else ''
+                    conn.execute("INSERT INTO expenses(date,category,description,amount,payment,created_by) VALUES(?,?,?,?,?,?)",
+                                 (date, category, description, amt, payment, by))
+            return self._ok(msg="Expense saved")
+        except Exception as e:
+            return self._err(f"Could not save expense: {e}")
+
+    def delete_expense(self, id):
+        err = self._require_perm('expenses')
+        if err: return err
+        try:
+            db.execute("DELETE FROM expenses WHERE id=?", (id,))
+            return self._ok(msg="Expense deleted")
+        except Exception as e:
+            return self._err(f"Could not delete expense: {e}")
+
+    def get_profit_loss(self, date_from, date_to):
+        """Profit & Loss for a period: Revenue − Cost of Goods Sold = Gross Profit,
+        then − Operating Expenses (by category) = Net Profit."""
+        err = self._require_perm('reports')
+        if err: return err
+        sales = db.query("SELECT items_json FROM sales WHERE date >= ? AND date <= ?",
+                         (date_from, date_to + "T23:59:59"))
+        revenue = cogs = 0.0
+        for s in sales:
+            for it in json.loads(s['items_json']):
+                revenue += it['qty'] * it['unitPrice']
+                cogs += it['qty'] * it.get('costPrice', 0)
+        gross = revenue - cogs
+        cats = db.query("SELECT COALESCE(NULLIF(category,''),'Other') AS category, COALESCE(SUM(amount),0) AS amount "
+                        "FROM expenses WHERE date >= ? AND date <= ? GROUP BY category ORDER BY amount DESC",
+                        (date_from, date_to + "T23:59:59"))
+        by_category = [{'category': c['category'], 'amount': c['amount']} for c in cats]
+        expenses_total = sum(c['amount'] for c in by_category)
+        return self._ok({
+            'revenue': revenue, 'cogs': cogs, 'gross': gross,
+            'byCategory': by_category, 'expensesTotal': expenses_total,
+            'net': gross - expenses_total,
+        })
 
     # ── File saving (CSV templates / exports) ───────────────
     def save_text_file(self, filename, content):
