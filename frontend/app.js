@@ -1097,16 +1097,19 @@ function handleCategoryFile(input) {
   if (!file) return;
   const reader = new FileReader();
   reader.onload = function(e) {
-    const lines = e.target.result.split(/\r?\n/).filter(l => l.trim());
-    // Detect if first line is header
-    const header = lines[0].toLowerCase().trim();
-    const start = (header === 'name' || header === 'category') ? 1 : 0;
-    const names = lines.slice(start).map(l => l.split(',')[0].trim()).filter(Boolean);
+    const rows = _csvCells(e.target.result);
+    if (!rows.length) { showToast('No categories found in file', 'error'); return; }
+    const first = (rows[0][0] || '').toLowerCase().trim();
+    const hasHeader = ['name', 'category', 'categories'].includes(first);
+    let col = 0;
+    if (hasHeader) { const hdr = rows[0].map(h => h.toLowerCase().trim()); const ix = hdr.indexOf('name'); col = ix >= 0 ? ix : 0; }
+    const data = hasHeader ? rows.slice(1) : rows;
+    const names = [...new Set(data.map(r => (r[col] || '').trim()).filter(Boolean))];
     if (!names.length) { showToast('No categories found in file', 'error'); return; }
     document.getElementById('categoryUploadPreview').innerHTML = `
       <p style="font-size:0.8rem;margin:1rem 0 0.5rem">Found <strong>${names.length}</strong> categories:</p>
       <div style="max-height:150px;overflow-y:auto;background:var(--surface-container-lowest);padding:0.75rem;border-radius:var(--radius);font-size:0.8rem;margin-bottom:1rem">
-        ${names.map(n => `<div>${n}</div>`).join('')}
+        ${names.map(n => `<div>${esc(n)}</div>`).join('')}
       </div>
       <button class="btn btn-primary btn-block" onclick="importCategories(${JSON.stringify(names).replace(/"/g,'&quot;')})">
         <span class="material-symbols-outlined">upload</span> Import ${names.length} Categories
@@ -1146,14 +1149,48 @@ function openProductUploadModal() {
     <span class="template-link" onclick="downloadProductTemplate()"><span class="material-symbols-outlined" style="font-size:14px">download</span> Download template</span>`);
 }
 
+// Robust CSV cell parser: strips a BOM, auto-detects the delimiter
+// (comma / semicolon / tab), and handles quoted fields that contain commas,
+// escaped quotes ("") and embedded newlines, plus CR / CRLF / LF line endings.
+function _csvCells(text) {
+  text = String(text).replace(/^﻿/, '');
+  // Detect delimiter from the first physical line (ignoring quoted sections).
+  let firstEnd = text.length, q = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (c === '"') q = !q;
+    else if (!q && (c === '\n' || c === '\r')) { firstEnd = i; break; }
+  }
+  const head = text.slice(0, firstEnd);
+  const count = ch => (head.split(ch).length - 1);
+  let delim = ',';
+  if (count(';') > count(',') && count(';') >= count('\t')) delim = ';';
+  else if (count('\t') > count(',')) delim = '\t';
+
+  const rows = []; let row = [], cell = '', inQ = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (inQ) {
+      if (c === '"') { if (text[i + 1] === '"') { cell += '"'; i++; } else inQ = false; }
+      else cell += c;
+    } else if (c === '"') { inQ = true; }
+    else if (c === delim) { row.push(cell); cell = ''; }
+    else if (c === '\n' || c === '\r') {
+      if (c === '\r' && text[i + 1] === '\n') i++;
+      row.push(cell); rows.push(row); row = []; cell = '';
+    } else cell += c;
+  }
+  if (cell.length || row.length) { row.push(cell); rows.push(row); }
+  return rows.filter(r => r.some(x => x.trim() !== ''));
+}
+
 function parseCSV(text) {
-  const lines = text.split(/\r?\n/).filter(l => l.trim());
-  if (lines.length < 2) return [];
-  const headers = lines[0].split(',').map(h => h.trim().toLowerCase().replace(/\s+/g, '_'));
-  return lines.slice(1).map(line => {
-    const vals = line.split(',');
+  const rows = _csvCells(text);
+  if (rows.length < 2) return [];
+  const headers = rows[0].map(h => h.trim().toLowerCase().replace(/\s+/g, '_'));
+  return rows.slice(1).map(r => {
     const obj = {};
-    headers.forEach((h, i) => { obj[h] = (vals[i] || '').trim(); });
+    headers.forEach((h, i) => { obj[h] = (r[i] != null ? String(r[i]) : '').trim(); });
     return obj;
   }).filter(obj => obj.sku || obj.name);
 }
@@ -1185,16 +1222,15 @@ async function importProducts() {
   const products = window._pendingProductImport;
   if (!products || !products.length) return;
   const res = await api('bulk_import_products', JSON.stringify(products));
-  if (res.ok) {
-    closeModal();
-    showToast(res.msg);
-    renderProducts();
-    populateFilters();
-    if (res.data.errors && res.data.errors.length) {
-      setTimeout(() => showToast(res.data.errors[0], 'error'), 1500);
-    }
-  } else {
-    showToast(res.msg, 'error');
+  if (!res.ok) { showToast(res.msg, 'error'); return; }
+  closeModal();
+  const d = res.data || {};
+  // Tell the user exactly what happened, including why rows didn't import.
+  showToast(res.msg, d.added ? 'success' : 'error');
+  renderProducts();
+  populateFilters();
+  if (d.errors && d.errors.length) {
+    setTimeout(() => showToast(`First issue: ${d.errors[0]}`, 'error'), 1600);
   }
 }
 

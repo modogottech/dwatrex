@@ -7,9 +7,22 @@ navigation per role, but that is cosmetic only — every sensitive method
 re-checks the authenticated user's role on the server side.
 """
 import json
+import re
 import sqlite3
 from datetime import datetime, timedelta
 import database as db
+
+
+def _to_number(value, default=0.0):
+    """Parse a number tolerantly from CSV/user input: ignores thousands
+    separators, currency symbols, and stray spaces (e.g. 'GH₵1,200.00')."""
+    s = re.sub(r'[^0-9.\-]', '', str(value if value is not None else ''))
+    if s in ('', '-', '.', '-.', '--'):
+        return default
+    try:
+        return float(s)
+    except ValueError:
+        return default
 
 
 # Page/capability permissions per role (mirrors the frontend nav, authoritative here).
@@ -323,10 +336,11 @@ class StoreHubAPI:
                             continue
                         category = str(p.get('category', '')).strip()
                         supplier = str(p.get('supplier', '')).strip()
-                        cost_price = float(p.get('cost_price', 0))
-                        selling_price = float(p.get('selling_price', 0))
-                        stock = int(p.get('stock', 0))
-                        reorder_level = int(p.get('reorder_level', 10))
+                        cost_price = _to_number(p.get('cost_price', 0))
+                        selling_price = _to_number(p.get('selling_price', 0))
+                        stock = int(_to_number(p.get('stock', 0)))
+                        rl_raw = str(p.get('reorder_level', '')).strip()
+                        reorder_level = int(_to_number(rl_raw, 10)) if rl_raw else 10
                         expiry = str(p.get('expiry', '')).strip() or None
                         st = 'Out of Stock' if stock <= 0 else ('Low Stock' if stock <= reorder_level else 'In Stock')
                         conn.execute("""INSERT INTO products(sku,name,category,supplier,cost_price,selling_price,
