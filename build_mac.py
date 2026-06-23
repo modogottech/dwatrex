@@ -100,6 +100,9 @@ def main():
     print("=" * 60)
     print(f"  DWATREX macOS BUILD")
     print("=" * 60)
+    print("\nFetching offline web assets (fonts + Chart.js)...")
+    subprocess.run([sys.executable, os.path.join(BASE, 'frontend', 'assets', 'fetch_assets.py')],
+                   cwd=BASE, check=True)
     build_app()
     build_reset_tool()
     dmg = build_dmg()

@@ -21,6 +21,13 @@ COMPANY = 'Dwatrex'
 COPYRIGHT = 'Copyright 2026 Dwatrex'
 
 
+def ensure_assets():
+    """Download bundled web assets (fonts + Chart.js) so the app runs offline."""
+    print("Fetching offline web assets...")
+    subprocess.run([sys.executable, os.path.join(BASE, 'frontend', 'assets', 'fetch_assets.py')],
+                   cwd=BASE, check=True)
+
+
 def ensure_icon():
     """Generate the icon if it doesn't exist."""
     if not os.path.exists(ICO_PATH):
@@ -78,6 +85,9 @@ def build():
     print(f"  DWATREX BUILD SYSTEM v{APP_VERSION}")
     print("=" * 60)
     print()
+
+    # Step 0: Download offline web assets (fonts + Chart.js) into frontend/assets
+    ensure_assets()
 
     # Step 1: Icon
     ensure_icon()

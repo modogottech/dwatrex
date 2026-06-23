@@ -157,6 +157,15 @@ def init_db():
         role     TEXT,
         status   TEXT DEFAULT 'Active'
     );
+    CREATE TABLE IF NOT EXISTS expenses (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        date        TEXT NOT NULL,
+        category    TEXT,
+        description TEXT,
+        amount      REAL NOT NULL DEFAULT 0,
+        payment     TEXT,
+        created_by  TEXT
+    );
     """)
     conn.commit()
 
