@@ -321,7 +321,7 @@ async function refreshPage(page) {
     case 'products': await renderProducts(); break;
     case 'categories': await renderCategories(); break;
     case 'suppliers': await renderSuppliers(); break;
-    case 'sales': await renderPOSProducts(); await renderSalesHistory(); break;
+    case 'sales': await renderPOSProducts(); renderCart(); await renderSalesHistory(); break;
     case 'purchases': await renderPurchases(); break;
     case 'inventory': await renderInventory(); break;
     case 'returns': await renderReturns(); break;
