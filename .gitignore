@@ -17,9 +17,9 @@ venv/
 *.db-wal
 *.db-shm
 
-# Bundled web assets (fetched at build time by frontend/assets/fetch_assets.py)
-frontend/assets/fonts/
-frontend/assets/chart.umd.min.js
+# Note: bundled web assets (frontend/assets/fonts/*.woff2 and chart.umd.min.js)
+# are committed to the repo so the app works fully offline and from source with
+# no download step. Run frontend/assets/fetch_assets.py once to populate them.
 
 # OS noise
 .DS_Store
