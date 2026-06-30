@@ -26,13 +26,15 @@ def _to_number(value, default=0.0):
 
 
 # Page/capability permissions per role (mirrors the frontend nav, authoritative here).
+# Note: 'profits' is a pseudo-permission (not a navigable page). It gates
+# profit/margin visibility — the dashboard profit tiles, the Profit & Loss and
+# Profit-by-Period reports, and cost data carried on sales. Only admin holds it.
 ROLE_PERMS = {
     'admin':     {'dashboard', 'products', 'categories', 'suppliers', 'sales',
                   'purchases', 'inventory', 'returns', 'reports', 'insights',
-                  'expenses', 'users', 'settings'},
+                  'expenses', 'users', 'settings', 'profits'},
     'manager':   {'dashboard', 'products', 'categories', 'suppliers', 'sales',
-                  'purchases', 'inventory', 'returns', 'reports', 'insights',
-                  'expenses'},
+                  'purchases', 'inventory', 'returns', 'reports'},
     'cashier':   {'dashboard', 'sales', 'returns'},
     'inventory': {'dashboard', 'products', 'categories', 'suppliers',
                   'purchases', 'inventory'},
@@ -66,6 +68,12 @@ class StoreHubAPI:
         if perm not in ROLE_PERMS.get(role, set()):
             return self._err("Permission denied for your role.")
         return None
+
+    def _has_perm(self, perm):
+        """True if the current user's role grants `perm` (no error side effect)."""
+        if not self._current_user:
+            return False
+        return perm in ROLE_PERMS.get(self._current_user.get('role'), set())
 
     # ── First-Run Setup ────────────────────────────────────
     def check_first_run(self):
@@ -634,7 +642,7 @@ class StoreHubAPI:
         month_expenses = db.query("SELECT COALESCE(SUM(amount),0) as v FROM expenses WHERE date >= ?", (month_ago,))[0]['v']
         net_profit = profit - month_expenses
 
-        return self._ok({
+        payload = {
             'todaySales': today_sales[0]['v'],
             'weekSales': week_sales[0]['v'],
             'monthSales': month_sales[0]['v'],
@@ -645,7 +653,13 @@ class StoreHubAPI:
             'expenses': month_expenses,
             'netProfit': net_profit,
             'totalProducts': total_prods,
-        })
+        }
+        # Roles without 'profits' (e.g. manager) never receive profit figures.
+        if not self._has_perm('profits'):
+            payload['profit'] = None
+            payload['expenses'] = None
+            payload['netProfit'] = None
+        return self._ok(payload)
 
     # ── Reporting data ──────────────────────────────────────
     def get_sales_for_period(self, date_from, date_to):
@@ -653,8 +667,16 @@ class StoreHubAPI:
         if err: return err
         rows = db.query("SELECT * FROM sales WHERE date >= ? AND date <= ? ORDER BY date",
                         (date_from, date_to + "T23:59:59"))
+        # Strip cost data for roles that can't see profit, so margins can't be
+        # reconstructed client-side from the raw sale items.
+        show_cost = self._has_perm('profits')
         for r in rows:
-            r['items'] = json.loads(r['items_json'])
+            items = json.loads(r['items_json'])
+            if not show_cost:
+                for it in items:
+                    it.pop('costPrice', None)
+                r.pop('items_json', None)
+            r['items'] = items
         return self._ok(rows)
 
     def get_all_products(self):
@@ -710,7 +732,7 @@ class StoreHubAPI:
     def get_profit_loss(self, date_from, date_to):
         """Profit & Loss for a period: Revenue − Cost of Goods Sold = Gross Profit,
         then − Operating Expenses (by category) = Net Profit."""
-        err = self._require_perm('reports')
+        err = self._require_perm('profits')
         if err: return err
         sales = db.query("SELECT items_json FROM sales WHERE date >= ? AND date <= ?",
                          (date_from, date_to + "T23:59:59"))
