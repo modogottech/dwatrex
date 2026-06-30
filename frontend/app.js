@@ -177,9 +177,11 @@ async function handleLogout() {
   document.getElementById('loginForm').reset();
   document.getElementById('loginError').style.display = 'none';
 }
+// 'profits' is a pseudo-permission (not a page) controlling visibility of
+// profit/margin figures. Only admin has it.
 const ROLE_PERMS = {
-  admin:['dashboard','products','categories','suppliers','sales','purchases','inventory','returns','reports','insights','expenses','users','settings'],
-  manager:['dashboard','products','categories','suppliers','sales','purchases','inventory','returns','reports','insights','expenses'],
+  admin:['dashboard','products','categories','suppliers','sales','purchases','inventory','returns','reports','insights','expenses','users','settings','profits'],
+  manager:['dashboard','products','categories','suppliers','sales','purchases','inventory','returns','reports'],
   cashier:['dashboard','sales','returns'],
   inventory:['dashboard','products','categories','suppliers','purchases','inventory'],
 };
@@ -197,6 +199,19 @@ function applyRolePermissions() {
   // Quick Transaction CTA only makes sense if the role can use the POS.
   const cta = document.querySelector('.sidebar-cta');
   if (cta) cta.classList.toggle('hidden', !perms.includes('sales'));
+
+  // Profit/margin surfaces: hide dashboard profit tiles and the profit report
+  // types for roles without 'profits'.
+  const showProfits = perms.includes('profits');
+  document.querySelectorAll('.perm-profits').forEach(el => {
+    el.hidden = !showProfits;                 // works for <option> and tiles
+    el.classList.toggle('hidden', !showProfits);
+  });
+  const rt = document.getElementById('reportType');
+  if (rt && !showProfits) {
+    const sel = rt.selectedOptions[0];
+    if (sel && sel.classList.contains('perm-profits')) rt.value = 'dailySales';
+  }
 }
 
 // ═══════ NAV ═══════════════════════════════════════════════
@@ -363,9 +378,10 @@ async function renderDashboard() {
   document.getElementById('metricTransactions').textContent = d.transactions;
   document.getElementById('metricInventoryVal').textContent = money(d.inventoryValue);
   document.getElementById('metricLowStock').textContent = d.lowStock;
-  document.getElementById('metricProfit').textContent = money(d.profit);
+  // Profit fields are null for roles without 'profits' (tiles are hidden anyway).
+  if (d.profit != null) document.getElementById('metricProfit').textContent = money(d.profit);
   const np = document.getElementById('metricNetProfit');
-  if (np) np.textContent = money(d.netProfit != null ? d.netProfit : d.profit);
+  if (np && d.netProfit != null) np.textContent = money(d.netProfit);
   document.getElementById('metricProducts').textContent = d.totalProducts;
 
   const sr = await api('get_sales_for_period', fmt(daysAgo(30)), fmt(new Date()));

@@ -244,5 +244,69 @@ class ExpenseTests(BaseCase):
         self.assertIn("netProfit", self.call("get_dashboard_data")["data"])
 
 
+class ManagerProfitRestrictionTests(BaseCase):
+    """Manager role: no profits, no Intelligence, no Expenses; reports/sales still work."""
+
+    def test_manager_blocked_from_profit_loss(self):
+        self.login_as("manager")
+        res = self.call("get_profit_loss", "2000-01-01", "2100-01-01")
+        self.assertFalse(res["ok"])
+        self.assertIn("Permission", res["msg"])
+
+    def test_admin_can_run_profit_loss(self):
+        self.login_as("admin")
+        self.assertTrue(self.call("get_profit_loss", "2000-01-01", "2100-01-01")["ok"])
+
+    def test_manager_dashboard_hides_profit(self):
+        self.login_as("manager")
+        d = self.call("get_dashboard_data")["data"]
+        # Sales figures still present; profit figures nulled out.
+        self.assertIsNotNone(d["todaySales"])
+        self.assertIsNone(d["profit"])
+        self.assertIsNone(d["netProfit"])
+        self.assertIsNone(d["expenses"])
+
+    def test_admin_dashboard_shows_profit(self):
+        self.login_as("admin")
+        d = self.call("get_dashboard_data")["data"]
+        self.assertIsNotNone(d["profit"])
+        self.assertIsNotNone(d["netProfit"])
+
+    def test_manager_blocked_from_expenses(self):
+        self.login_as("manager")
+        self.assertFalse(self.call("get_expenses")["ok"])
+        today = __import__("datetime").date.today().isoformat()
+        self.assertFalse(self.call("save_expense", None, today, "Rent", "", "10", "Cash")["ok"])
+
+    def test_manager_sales_have_no_cost(self):
+        # Record a sale as admin, then read it back as manager — costPrice stripped.
+        self.login_as("admin")
+        p = self.first_product()
+        items = [{"productId": p["id"], "name": p["name"], "qty": 1,
+                  "unitPrice": 10.0, "costPrice": 4.0}]
+        self.call("complete_sale", json.dumps(items), 0, 0, "Cash")
+        self.login_as("manager")
+        rows = self.call("get_sales_for_period", "2000-01-01", "2100-01-01")["data"]
+        self.assertTrue(rows, "manager should still see sales")
+        for r in rows:
+            for it in r["items"]:
+                self.assertNotIn("costPrice", it)
+
+    def test_admin_sales_retain_cost(self):
+        self.login_as("admin")
+        p = self.first_product()
+        items = [{"productId": p["id"], "name": p["name"], "qty": 1,
+                  "unitPrice": 10.0, "costPrice": 4.0}]
+        self.call("complete_sale", json.dumps(items), 0, 0, "Cash")
+        rows = self.call("get_sales_for_period", "2000-01-01", "2100-01-01")["data"]
+        self.assertTrue(any("costPrice" in it for r in rows for it in r["items"]))
+
+    def test_manager_can_still_use_reports_and_sales(self):
+        self.login_as("manager")
+        # A non-profit report path (sales data) and product listing must still work.
+        self.assertTrue(self.call("get_sales_for_period", "2000-01-01", "2100-01-01")["ok"])
+        self.assertTrue(self.call("get_all_products")["ok"])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
