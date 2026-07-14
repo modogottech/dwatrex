@@ -308,5 +308,78 @@ class ManagerProfitRestrictionTests(BaseCase):
         self.assertTrue(self.call("get_all_products")["ok"])
 
 
+class BelowCostPinTests(BaseCase):
+    """Admin-set approval PIN gates below-cost sales; enforced server-side."""
+
+    def setUp(self):
+        super().setUp()
+        self.login_as("admin")
+        self.p = self.first_product()   # has a real cost_price from demo seed
+
+    def _below_cost_items(self):
+        # Sell one unit at half the product's cost -> a loss.
+        below = round(self.p["cost_price"] / 2, 2)
+        return json.dumps([{"productId": self.p["id"], "name": self.p["name"],
+                            "qty": 1, "unitPrice": below, "costPrice": self.p["cost_price"]}])
+
+    def _set_pin(self, pin):
+        self.assertTrue(self.call("save_settings", json.dumps({"below_cost_pin": pin}))["ok"])
+
+    def test_get_settings_never_exposes_pin(self):
+        self._set_pin("1357")
+        d = self.call("get_settings")["data"]
+        self.assertNotIn("below_cost_pin", d)          # neither raw nor hash
+        self.assertTrue(d["below_cost_pin_set"])
+
+    def test_below_cost_blocked_without_pin_value(self):
+        self._set_pin("1357")
+        res = self.call("complete_sale", self._below_cost_items(), 0, 0, "Cash")   # no pin passed
+        self.assertFalse(res["ok"])
+        self.assertIn("PIN", res["msg"])
+
+    def test_below_cost_blocked_with_wrong_pin(self):
+        self._set_pin("1357")
+        res = self.call("complete_sale", self._below_cost_items(), 0, 0, "Cash", "9999")
+        self.assertFalse(res["ok"])
+
+    def test_below_cost_allowed_with_correct_pin(self):
+        self._set_pin("1357")
+        res = self.call("complete_sale", self._below_cost_items(), 0, 0, "Cash", "1357")
+        self.assertTrue(res["ok"], res.get("msg"))
+
+    def test_below_cost_allowed_when_no_pin_configured(self):
+        # No PIN set -> backend does not block (frontend still confirms).
+        res = self.call("complete_sale", self._below_cost_items(), 0, 0, "Cash")
+        self.assertTrue(res["ok"], res.get("msg"))
+
+    def test_normal_priced_sale_needs_no_pin(self):
+        self._set_pin("1357")
+        good = json.dumps([{"productId": self.p["id"], "name": self.p["name"], "qty": 1,
+                            "unitPrice": self.p["cost_price"] + 5, "costPrice": self.p["cost_price"]}])
+        res = self.call("complete_sale", good, 0, 0, "Cash")
+        self.assertTrue(res["ok"], res.get("msg"))
+
+    def test_pin_uses_db_cost_not_client_value(self):
+        # Client lies that costPrice is tiny, but the DB cost is authoritative.
+        self._set_pin("1357")
+        spoof = json.dumps([{"productId": self.p["id"], "name": self.p["name"], "qty": 1,
+                             "unitPrice": round(self.p["cost_price"] / 2, 2), "costPrice": 0.01}])
+        res = self.call("complete_sale", spoof, 0, 0, "Cash")   # still below real cost -> blocked
+        self.assertFalse(res["ok"])
+        self.assertIn("PIN", res["msg"])
+
+    def test_clear_pin_disables_requirement(self):
+        self._set_pin("1357")
+        self.assertTrue(self.call("save_settings", json.dumps({"below_cost_pin": "__clear__"}))["ok"])
+        self.assertFalse(self.call("get_settings")["data"]["below_cost_pin_set"])
+        res = self.call("complete_sale", self._below_cost_items(), 0, 0, "Cash")
+        self.assertTrue(res["ok"], res.get("msg"))
+
+    def test_short_pin_rejected(self):
+        res = self.call("save_settings", json.dumps({"below_cost_pin": "12"}))
+        self.assertFalse(res["ok"])
+        self.assertIn("4", res["msg"])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

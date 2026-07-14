@@ -307,6 +307,10 @@
             <div class="cart-row"><label>Tax (%)</label><input type="number" id="cartTax" value="7.5" min="0" oninput="updateCartTotals()"></div>
             <div class="cart-row total"><span>Total</span><span id="cartTotal">$0.00</span></div>
             <div class="cart-row"><label>Payment</label><select id="paymentMethod"><option>Cash</option><option>Mobile Money</option><option>Card</option><option>Bank Transfer</option></select></div>
+            <div class="cart-row hidden" id="belowCostPinRow" style="flex-direction:column;align-items:stretch;gap:4px">
+              <label style="color:#ff6b6b;font-weight:700"><span class="material-symbols-outlined" style="font-size:14px;vertical-align:middle">lock</span> Below-cost approval PIN</label>
+              <input type="password" id="belowCostPinInput" placeholder="Manager PIN required" autocomplete="off">
+            </div>
             <div class="cart-buttons">
               <button class="btn btn-primary btn-block" onclick="completeSale()"><span class="material-symbols-outlined">check_circle</span> Complete Sale</button>
               <button class="btn btn-outline btn-block" onclick="clearCart()"><span class="material-symbols-outlined">delete_sweep</span> Clear Cart</button>
@@ -593,6 +597,12 @@
           <div class="form-group"><label>Low Stock Threshold</label><input type="number" id="settingLowStock" value="10"></div>
           <div class="form-group"><label>Fast Moving Threshold (units/month)</label><input type="number" id="settingFastMoving" value="50"></div>
           <div class="form-group"><label>Slow Moving Threshold (units/month)</label><input type="number" id="settingSlowMoving" value="5"></div>
+          <div class="form-group">
+            <label>Below-Cost Approval PIN</label>
+            <input type="password" id="settingBelowCostPin" placeholder="Set a PIN (min 4 chars)" autocomplete="new-password">
+            <p style="font-size:0.75rem;color:var(--on-surface-variant);margin-top:0.35rem" id="belowCostPinHint">When set, cashiers must enter this PIN to sell any item below its cost price. Leave blank to keep the current PIN.</p>
+            <label style="font-size:0.8rem;font-weight:400;display:flex;align-items:center;gap:6px;margin-top:0.4rem"><input type="checkbox" id="settingBelowCostPinClear" style="width:auto"> Remove PIN requirement</label>
+          </div>
           <button class="btn btn-primary" onclick="saveSettings()"><span class="material-symbols-outlined">save</span> Save Settings</button>
         </div>
         <div class="card">

@@ -18,6 +18,7 @@ const fmt = d => new Date(d).toISOString().split('T')[0];
 const fmtDate = d => new Date(d).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
 // Currency symbol is configurable in Settings; defaults to Ghanaian cedi.
 let currencySymbol = 'GH₵';
+let belowCostPinSet = false;   // true when an admin has configured an approval PIN
 const money = n => currencySymbol + Number(n).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,',');
 const daysAgo = n => { const d = new Date(); d.setDate(d.getDate()-n); return d; };
 
@@ -318,6 +319,7 @@ async function applySettings() {
   if (res.ok && res.data) {
     const d = res.data;
     if (d.currency) currencySymbol = d.currency;
+    belowCostPinSet = !!d.below_cost_pin_set;
     const taxEl = document.getElementById('cartTax');
     if (taxEl && d.taxRate != null && d.taxRate !== '') taxEl.value = d.taxRate;
     storeInfo = {
@@ -608,13 +610,23 @@ function renderCart() {
   if(!cart.length) { c.innerHTML='<p style="text-align:center;color:var(--outline);padding:2rem">Cart is empty</p>'; }
   else { c.innerHTML=cart.map((it,i)=>{
     const priceChanged = it.unitPrice !== it.originalPrice;
+    const belowCost = it.costPrice != null && it.unitPrice < it.costPrice;
+    const zeroPrice = it.unitPrice <= 0;
+    const warn = belowCost || zeroPrice;
+    const warnTitle = zeroPrice ? 'This item is priced at 0 — no revenue'
+                    : belowCost ? `Below cost (${money(it.costPrice)}) — this line makes a loss` : 'Edit price';
     return `<div class="cart-item"><span class="item-name">${esc(it.name)}</span>
     <input type="number" class="item-qty" value="${it.qty}" min="1" max="${it.maxStock}" onchange="updateCartQty(${i},this.value)">
-    <input type="number" step="0.01" class="item-price" value="${it.unitPrice.toFixed(2)}" min="0" onchange="updateCartPrice(${i},this.value)" title="Edit price">
+    <input type="number" step="0.01" class="item-price${warn?' price-warn':''}" value="${it.unitPrice.toFixed(2)}" min="0" onchange="updateCartPrice(${i},this.value)" title="${warnTitle}">
     ${priceChanged ? `<span class="item-original-price">${money(it.originalPrice)}</span>` : ''}
     <span class="item-total">${money(it.qty*it.unitPrice)}</span>
-    <button class="item-remove" onclick="removeFromCart(${i})"><span class="material-symbols-outlined" style="font-size:16px">close</span></button></div>`;
+    <button class="item-remove" onclick="removeFromCart(${i})"><span class="material-symbols-outlined" style="font-size:16px">close</span></button>
+    ${warn?`<span class="item-loss-flag" title="${warnTitle}"><span class="material-symbols-outlined" style="font-size:13px">warning</span>${zeroPrice?'Zero price':'Below cost'}</span>`:''}</div>`;
   }).join(''); }
+  // Show the approval-PIN field only when a below-cost line is present AND a PIN is configured.
+  const hasBelowCost = cart.some(it => it.unitPrice <= 0 || (it.costPrice != null && it.unitPrice < it.costPrice));
+  const pinRow = document.getElementById('belowCostPinRow');
+  if (pinRow) pinRow.classList.toggle('hidden', !(hasBelowCost && belowCostPinSet));
   updateCartTotals();
 }
 function updateCartQty(i,v){ const q=parseInt(v); if(q>0&&q<=cart[i].maxStock) cart[i].qty=q; renderCart(); }
@@ -632,12 +644,31 @@ function updateCartTotals() {
 
 async function completeSale() {
   if(!cart.length){ showToast('Cart is empty','error'); return; }
+  // Any line priced at 0 or below its cost is a loss-making sale.
+  const problems = cart.filter(c => c.unitPrice <= 0 || (c.costPrice != null && c.unitPrice < c.costPrice));
+  let approvalPin = "";
+  if (problems.length) {
+    const lines = problems.map(c => `• ${c.name}: selling ${money(c.unitPrice)} vs cost ${money(c.costPrice)}`).join('\n');
+    if (belowCostPinSet) {
+      // Approval PIN configured — the cashier must enter it in the cart field.
+      approvalPin = (document.getElementById('belowCostPinInput')?.value || '').trim();
+      if (!approvalPin) {
+        showToast('Manager approval PIN required for below-cost items', 'error');
+        const el = document.getElementById('belowCostPinInput'); if (el) el.focus();
+        return;
+      }
+    } else {
+      // No PIN set — just confirm the loss.
+      if (!confirm(`${problems.length} item(s) are priced at or below cost — this sale will lose money:\n\n${lines}\n\nComplete the sale anyway?`)) return;
+    }
+  }
   const disc=parseFloat(document.getElementById('cartDiscount').value||0);
   const tax=parseFloat(document.getElementById('cartTax').value||0);
   const payment=document.getElementById('paymentMethod').value;
   const items=cart.map(c=>({productId:c.productId,name:c.name,qty:c.qty,unitPrice:c.unitPrice,costPrice:c.costPrice}));
-  const res=await api('complete_sale',JSON.stringify(items),disc,tax,payment);
+  const res=await api('complete_sale',JSON.stringify(items),disc,tax,payment,approvalPin);
   if(!res.ok){ showToast(res.msg,'error'); return; }
+  const pinEl = document.getElementById('belowCostPinInput'); if (pinEl) pinEl.value = '';
   showReceipt(res.data);
   cart=[]; renderCart(); renderPOSProducts(); renderSalesHistory();
   showToast('Sale completed! #'+res.data.id);
@@ -1366,6 +1397,15 @@ async function loadSettings() {
   setVal('settingSlowMoving', d.slowMovingThreshold);
   logoDataUrl = d.storeLogo || '';
   showLogoPreview(logoDataUrl);
+  belowCostPinSet = !!d.below_cost_pin_set;
+  const pinInput = document.getElementById('settingBelowCostPin');
+  if (pinInput) pinInput.value = '';
+  const clearBox = document.getElementById('settingBelowCostPinClear');
+  if (clearBox) clearBox.checked = false;
+  const hint = document.getElementById('belowCostPinHint');
+  if (hint) hint.textContent = belowCostPinSet
+    ? 'A PIN is currently set. Type a new one to change it, or leave blank to keep it.'
+    : 'No PIN set — below-cost sales only prompt a confirmation. Set a PIN (min 4 chars) to require approval.';
 }
 
 async function saveSettings() {
@@ -1378,12 +1418,20 @@ async function saveSettings() {
     currency:document.getElementById('settingCurrency').value.trim()||'GH₵',
     taxRate:document.getElementById('settingTaxRate').value, lowStockThreshold:document.getElementById('settingLowStock').value,
     fastMovingThreshold:document.getElementById('settingFastMoving').value, slowMovingThreshold:document.getElementById('settingSlowMoving').value};
+  // Below-cost approval PIN: clear it, set/change it, or leave it untouched.
+  const clearPin = document.getElementById('settingBelowCostPinClear')?.checked;
+  const newPin = (document.getElementById('settingBelowCostPin')?.value || '').trim();
+  if (clearPin) s.below_cost_pin = '__clear__';
+  else if (newPin) s.below_cost_pin = newPin;   // blank -> key omitted, PIN kept
   const res = await api('save_settings',JSON.stringify(s));
   if (!res.ok) { showToast(res.msg, 'error'); return; }
   currencySymbol = s.currency;          // take effect immediately, app-wide
   const taxEl = document.getElementById('cartTax'); if (taxEl) taxEl.value = s.taxRate;
   storeInfo = { name:s.storeName, address:s.storeAddress, phone:s.storePhone, email:s.storeEmail, logo:s.storeLogo };
+  if (clearPin) belowCostPinSet = false;
+  else if (newPin) belowCostPinSet = true;
   showToast('Settings saved');
+  loadSettings();   // refresh the hint / clear the field
 }
 
 // ── Logo upload (optional; stored as a data URL in settings) ──

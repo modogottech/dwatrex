@@ -137,7 +137,15 @@ class StoreHubAPI:
         err = self._require_auth()
         if err: return err
         rows = db.query("SELECT key, value FROM settings")
-        return self._ok({r['key']: r['value'] for r in rows})
+        out = {}
+        pin_set = False
+        for r in rows:
+            if r['key'] == 'below_cost_pin':
+                pin_set = bool(r['value'])   # never expose the hash itself
+                continue
+            out[r['key']] = r['value']
+        out['below_cost_pin_set'] = pin_set
+        return self._ok(out)
 
     def save_settings(self, settings_json):
         err = self._require_perm('settings')
@@ -146,8 +154,23 @@ class StoreHubAPI:
             s = json.loads(settings_json)
             with db.transaction() as conn:
                 for k, v in s.items():
+                    # The below-cost approval PIN is stored hashed, never in plain text.
+                    if k == 'below_cost_pin':
+                        v = str(v)
+                        if v == '':
+                            continue                     # blank -> keep existing PIN
+                        if v == '__clear__':
+                            conn.execute("DELETE FROM settings WHERE key='below_cost_pin'")
+                            continue
+                        if len(v) < 4:
+                            raise ValueError("Approval PIN must be at least 4 characters")
+                        conn.execute("INSERT OR REPLACE INTO settings(key,value) VALUES('below_cost_pin',?)",
+                                     (db.hash_password(v),))
+                        continue
                     conn.execute("INSERT OR REPLACE INTO settings(key,value) VALUES(?,?)", (k, str(v)))
             return self._ok(msg="Settings saved")
+        except ValueError as e:
+            return self._err(str(e))
         except Exception as e:
             return self._err(f"Could not save settings: {e}")
 
@@ -388,7 +411,7 @@ class StoreHubAPI:
             r['items'] = json.loads(r['items_json'])
         return self._ok(rows)
 
-    def complete_sale(self, items_json, discount, tax, payment):
+    def complete_sale(self, items_json, discount, tax, payment, approval_pin=""):
         err = self._require_perm('sales')
         if err: return err
         try:
@@ -401,16 +424,30 @@ class StoreHubAPI:
                 return self._err("Invalid discount or tax")
             now = datetime.now().isoformat()
             with db.transaction() as conn:
-                # Validate stock for every line BEFORE mutating anything.
+                # Validate stock for every line BEFORE mutating anything, and detect
+                # any line sold at/below the product's real cost (from the DB, not
+                # the client, so it can't be spoofed).
+                below_cost = False
                 for i in items:
                     qty = int(i['qty'])
                     if qty <= 0:
                         raise ValueError("Quantities must be positive")
-                    row = conn.execute("SELECT stock, name FROM products WHERE id=?", (i['productId'],)).fetchone()
+                    row = conn.execute("SELECT stock, name, cost_price FROM products WHERE id=?", (i['productId'],)).fetchone()
                     if not row:
                         raise ValueError(f"Product '{i.get('name', '?')}' no longer exists")
                     if row['stock'] < qty:
                         raise ValueError(f"Insufficient stock for {row['name']} (have {row['stock']}, need {qty})")
+                    unit = float(i['unitPrice'])
+                    if unit <= 0 or unit < row['cost_price']:
+                        below_cost = True
+
+                # A below-cost sale requires the admin-set approval PIN (if configured).
+                if below_cost:
+                    pin_row = conn.execute("SELECT value FROM settings WHERE key='below_cost_pin'").fetchone()
+                    pin_hash = pin_row['value'] if pin_row else None
+                    if pin_hash:
+                        if not approval_pin or not db.verify_password(str(approval_pin), pin_hash):
+                            raise ValueError("Below-cost sale requires the manager approval PIN.")
 
                 subtotal = sum(i['qty'] * i['unitPrice'] for i in items)
                 discount_amt = subtotal * discount / 100

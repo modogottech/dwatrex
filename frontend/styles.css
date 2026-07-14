@@ -683,6 +683,14 @@ input, select, textarea, button { font-family: inherit; }
   border-radius: var(--radius-sm); font-size: 0.8rem; font-family: 'Manrope'; font-weight: 700;
 }
 .cart-item .item-price:focus { outline: 1px solid var(--tertiary); }
+/* Loss warning: price at 0 or below cost. */
+.cart-item .item-price.price-warn {
+  color: #ff6b6b; background: rgba(255,107,107,0.12); outline: 1px solid rgba(255,107,107,0.5);
+}
+.cart-item .item-loss-flag {
+  display: inline-flex; align-items: center; gap: 2px; margin-left: 6px;
+  font-size: 0.6rem; font-weight: 700; color: #ff6b6b; text-transform: uppercase; letter-spacing: 0.3px;
+}
 .cart-item .item-original-price {
   font-size: 0.6rem; color: var(--outline); text-decoration: line-through; min-width: 45px; text-align: right;
 }
