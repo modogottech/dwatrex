@@ -26,3 +26,11 @@ venv/
 Thumbs.db
 
 DwatrexSetup*
+
+# Stray downloads / documents that are not part of the app
+*.crdownload
+*.pdf
+
+# Stray downloads / documents that are not part of the app
+*.crdownload
+*.pdf
