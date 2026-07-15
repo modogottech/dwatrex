@@ -112,6 +112,9 @@
       <a href="#" class="nav-item" data-page="returns" onclick="navigateTo('returns',this)">
         <span class="material-symbols-outlined">assignment_return</span><span>Returns</span>
       </a>
+      <a href="#" class="nav-item" data-page="credit" onclick="navigateTo('credit',this)">
+        <span class="material-symbols-outlined">handshake</span><span>Credit</span>
+      </a>
       <a href="#" class="nav-item" data-page="reports" onclick="navigateTo('reports',this)">
         <span class="material-symbols-outlined">analytics</span><span>Reports</span>
       </a>
@@ -306,7 +309,22 @@
             <div class="cart-row"><label>Discount (%)</label><input type="number" id="cartDiscount" value="0" min="0" max="100" oninput="updateCartTotals()"></div>
             <div class="cart-row"><label>Tax (%)</label><input type="number" id="cartTax" value="7.5" min="0" oninput="updateCartTotals()"></div>
             <div class="cart-row total"><span>Total</span><span id="cartTotal">$0.00</span></div>
-            <div class="cart-row"><label>Payment</label><select id="paymentMethod"><option>Cash</option><option>Mobile Money</option><option>Card</option><option>Bank Transfer</option></select></div>
+            <div class="cart-row"><label>Payment</label><select id="paymentMethod" onchange="onPaymentMethodChange()"><option>Cash</option><option>Mobile Money</option><option>Card</option><option>Bank Transfer</option><option>Credit</option></select></div>
+            <div class="hidden" id="creditFields">
+              <div class="cart-row" style="flex-direction:column;align-items:stretch;gap:4px">
+                <label>Customer Name *</label>
+                <input type="text" id="creditCustomerName" placeholder="Who is taking the goods?" autocomplete="off">
+              </div>
+              <div class="cart-row" style="flex-direction:column;align-items:stretch;gap:4px">
+                <label>Customer Phone</label>
+                <input type="text" id="creditCustomerPhone" placeholder="e.g. 024 000 0000" autocomplete="off">
+              </div>
+              <div class="cart-row" style="flex-direction:column;align-items:stretch;gap:4px">
+                <label>Deposit Paid Now</label>
+                <input type="number" step="0.01" min="0" id="creditDeposit" value="0" placeholder="0.00">
+                <p style="font-size:0.7rem;color:var(--on-surface-variant)">Leave 0 if nothing is paid today. The rest is recorded as owed.</p>
+              </div>
+            </div>
             <div class="cart-row hidden" id="belowCostPinRow" style="flex-direction:column;align-items:stretch;gap:4px">
               <label style="color:#ff6b6b;font-weight:700"><span class="material-symbols-outlined" style="font-size:14px;vertical-align:middle">lock</span> Below-cost approval PIN</label>
               <input type="password" id="belowCostPinInput" placeholder="Manager PIN required" autocomplete="off">
@@ -392,6 +410,41 @@
           <thead><tr><th>ID</th><th>Date</th><th>Sale ID</th><th>Product</th><th>Qty</th><th>Reason</th><th>Resellable</th><th>Refund</th></tr></thead>
           <tbody></tbody>
         </table>
+      </div>
+    </section>
+
+    <!-- ═══════ CREDIT / RECEIVABLES ════════════════════════ -->
+    <section id="page-credit" class="page">
+      <div class="page-title-section">
+        <h2>Credit &amp; Receivables</h2>
+        <p>Track goods sold on credit and record customer repayments</p>
+      </div>
+      <div class="insight-kpis credit-kpis">
+        <div class="kpi-tile kpi-danger">
+          <div class="kpi-label">Total Outstanding</div>
+          <div class="kpi-value" id="creditOutstanding">0</div>
+        </div>
+        <div class="kpi-tile">
+          <div class="kpi-label">Customers Owing</div>
+          <div class="kpi-value" id="creditCustomers">0</div>
+        </div>
+      </div>
+      <div class="page-header">
+        <div class="page-actions">
+          <select id="creditStatusFilter" onchange="renderCredit()">
+            <option value="outstanding">Outstanding</option>
+            <option value="settled">Settled</option>
+            <option value="all">All credit sales</option>
+          </select>
+        </div>
+      </div>
+      <div class="card">
+        <div class="table-scroll">
+          <table class="data-table" id="creditTable">
+            <thead><tr><th>Sale</th><th>Date</th><th>Customer</th><th>Phone</th><th>Total</th><th>Paid</th><th>Balance</th><th>Status</th><th>Actions</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
       </div>
     </section>
 

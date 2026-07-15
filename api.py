@@ -32,10 +32,10 @@ def _to_number(value, default=0.0):
 ROLE_PERMS = {
     'admin':     {'dashboard', 'products', 'categories', 'suppliers', 'sales',
                   'purchases', 'inventory', 'returns', 'reports', 'insights',
-                  'expenses', 'users', 'settings', 'profits'},
+                  'expenses', 'users', 'settings', 'profits', 'credit'},
     'manager':   {'dashboard', 'products', 'categories', 'suppliers', 'sales',
-                  'purchases', 'inventory', 'returns', 'reports'},
-    'cashier':   {'dashboard', 'sales', 'returns'},
+                  'purchases', 'inventory', 'returns', 'reports', 'credit'},
+    'cashier':   {'dashboard', 'sales', 'returns', 'credit'},
     'inventory': {'dashboard', 'products', 'categories', 'suppliers',
                   'purchases', 'inventory'},
 }
@@ -74,6 +74,28 @@ class StoreHubAPI:
         if not self._current_user:
             return False
         return perm in ROLE_PERMS.get(self._current_user.get('role'), set())
+
+    @staticmethod
+    def _resolve_backdate(date_str):
+        """Turn an optional 'YYYY-MM-DD' into a timestamp for a back-dated record.
+
+        Blank -> now. A past/today date keeps the current clock time so records
+        stay ordered sensibly. Future dates are rejected.
+        """
+        date_str = (date_str or '').strip()
+        if not date_str:
+            return datetime.now().isoformat()
+        try:
+            d = datetime.strptime(date_str[:10], '%Y-%m-%d').date()
+        except ValueError:
+            raise ValueError("Invalid date. Use YYYY-MM-DD.")
+        today = datetime.now().date()
+        if d > today:
+            raise ValueError("Date cannot be in the future.")
+        if d == today:
+            return datetime.now().isoformat()
+        now_t = datetime.now().time()
+        return datetime.combine(d, now_t).isoformat()
 
     # ── First-Run Setup ────────────────────────────────────
     def check_first_run(self):
@@ -411,7 +433,11 @@ class StoreHubAPI:
             r['items'] = json.loads(r['items_json'])
         return self._ok(rows)
 
-    def complete_sale(self, items_json, discount, tax, payment, approval_pin=""):
+    def complete_sale(self, items_json, discount, tax, payment, approval_pin="",
+                      customer_name="", customer_phone="", amount_paid=None):
+        """Record a sale. When `payment` is 'Credit' a customer name is required and
+        `amount_paid` is any deposit taken now; the rest becomes an outstanding
+        balance. Credit sales still count as revenue immediately (accrual)."""
         err = self._require_perm('sales')
         if err: return err
         try:
@@ -422,6 +448,11 @@ class StoreHubAPI:
             tax = float(tax)
             if discount < 0 or discount > 100 or tax < 0:
                 return self._err("Invalid discount or tax")
+            is_credit = str(payment).strip().lower() == 'credit'
+            customer_name = (customer_name or '').strip()
+            customer_phone = (customer_phone or '').strip()
+            if is_credit and not customer_name:
+                return self._err("Customer name is required for a credit sale")
             now = datetime.now().isoformat()
             with db.transaction() as conn:
                 # Validate stock for every line BEFORE mutating anything, and detect
@@ -454,10 +485,24 @@ class StoreHubAPI:
                 tax_amt = (subtotal - discount_amt) * tax / 100
                 total = subtotal - discount_amt + tax_amt
 
+                # Credit: any deposit taken now, remainder owed. Otherwise paid in full.
+                if is_credit:
+                    paid = _to_number(amount_paid, 0) if amount_paid not in (None, '') else 0.0
+                    if paid < 0:
+                        raise ValueError("Deposit cannot be negative")
+                    if paid > total + 0.001:
+                        raise ValueError("Deposit cannot exceed the sale total")
+                    balance = round(total - paid, 2)
+                    status = 'Completed' if balance <= 0.001 else 'Credit'
+                else:
+                    paid, balance, status = total, 0.0, 'Completed'
+
                 cur = conn.execute(
-                    """INSERT INTO sales(date,items_json,subtotal,discount,tax,discount_amt,tax_amt,total,payment,status)
-                       VALUES(?,?,?,?,?,?,?,?,?,?)""",
-                    (now, json.dumps(items), subtotal, discount, tax, discount_amt, tax_amt, total, payment, 'Completed'))
+                    """INSERT INTO sales(date,items_json,subtotal,discount,tax,discount_amt,tax_amt,total,payment,status,
+                                         customer_name,customer_phone,amount_paid,balance)
+                       VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    (now, json.dumps(items), subtotal, discount, tax, discount_amt, tax_amt, total, payment, status,
+                     customer_name or None, customer_phone or None, round(paid, 2), balance))
                 sale_id = cur.lastrowid
 
                 for i in items:
@@ -474,6 +519,70 @@ class StoreHubAPI:
         except Exception as e:
             return self._err(f"Sale failed: {e}")
 
+    # ── Credit sales / receivables ──────────────────────────
+    def get_credit_sales(self, status="outstanding"):
+        """Credit sales. status: 'outstanding' (balance owed), 'settled', or 'all'."""
+        err = self._require_perm('credit')
+        if err: return err
+        sql = ("SELECT id,date,customer_name,customer_phone,total,amount_paid,balance,status,payment "
+               "FROM sales WHERE payment='Credit'")
+        if status == 'outstanding':
+            sql += " AND balance > 0.001"
+        elif status == 'settled':
+            sql += " AND balance <= 0.001"
+        sql += " ORDER BY date DESC"
+        rows = db.query(sql)
+        totals = {
+            'outstanding': round(sum(r['balance'] or 0 for r in db.query(
+                "SELECT balance FROM sales WHERE payment='Credit' AND balance > 0.001")), 2),
+            'customers': len({r['customer_name'] for r in db.query(
+                "SELECT customer_name FROM sales WHERE payment='Credit' AND balance > 0.001")}),
+        }
+        return self._ok({'sales': rows, 'totals': totals})
+
+    def get_credit_payments(self, sale_id):
+        err = self._require_perm('credit')
+        if err: return err
+        rows = db.query("SELECT * FROM credit_payments WHERE sale_id=? ORDER BY date DESC", (sale_id,))
+        return self._ok(rows)
+
+    def record_credit_payment(self, sale_id, amount, method="Cash", date="", note=""):
+        """Record a (possibly partial) repayment against a credit sale."""
+        err = self._require_perm('credit')
+        if err: return err
+        try:
+            amt = _to_number(amount, 0)
+            if amt <= 0:
+                return self._err("Payment amount must be greater than zero")
+            when = self._resolve_backdate(date)
+            taken_by = (self._current_user or {}).get('name', '')
+            with db.transaction() as conn:
+                sale = conn.execute("SELECT total, amount_paid, balance, payment FROM sales WHERE id=?",
+                                    (sale_id,)).fetchone()
+                if not sale:
+                    raise ValueError("Sale not found")
+                if sale['payment'] != 'Credit':
+                    raise ValueError("That sale is not a credit sale")
+                balance = sale['balance'] or 0
+                if balance <= 0.001:
+                    raise ValueError("This credit sale is already settled")
+                if amt > balance + 0.001:
+                    raise ValueError(f"Payment exceeds the outstanding balance of {round(balance, 2)}")
+                new_paid = round((sale['amount_paid'] or 0) + amt, 2)
+                new_balance = round((sale['total'] or 0) - new_paid, 2)
+                status = 'Completed' if new_balance <= 0.001 else 'Credit'
+                conn.execute("UPDATE sales SET amount_paid=?, balance=?, status=? WHERE id=?",
+                             (new_paid, new_balance, status, sale_id))
+                conn.execute("INSERT INTO credit_payments(sale_id,date,amount,method,note,taken_by) VALUES(?,?,?,?,?,?)",
+                             (sale_id, when, round(amt, 2), method, note, taken_by))
+            settled = new_balance <= 0.001
+            return self._ok({'balance': new_balance, 'settled': settled},
+                            "Payment recorded — account settled" if settled else "Payment recorded")
+        except ValueError as e:
+            return self._err(str(e))
+        except Exception as e:
+            return self._err(f"Could not record payment: {e}")
+
     # ── Purchases ───────────────────────────────────────────
     def get_purchases(self):
         err = self._require_auth()
@@ -483,14 +592,16 @@ class StoreHubAPI:
             r['items'] = json.loads(r['items_json'])
         return self._ok(rows)
 
-    def save_purchase(self, supplier, items_json):
+    def save_purchase(self, supplier, items_json, date=""):
+        """Record a purchase. `date` (YYYY-MM-DD) allows back-dating a purchase
+        that was completed on an earlier day; blank means now."""
         err = self._require_perm('purchases')
         if err: return err
         try:
             items = json.loads(items_json)
             if not items:
                 return self._err("Add at least one item")
-            now = datetime.now().isoformat()
+            now = self._resolve_backdate(date)
             with db.transaction() as conn:
                 for i in items:
                     if int(i['qty']) <= 0:

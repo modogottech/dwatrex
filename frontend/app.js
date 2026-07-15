@@ -181,9 +181,9 @@ async function handleLogout() {
 // 'profits' is a pseudo-permission (not a page) controlling visibility of
 // profit/margin figures. Only admin has it.
 const ROLE_PERMS = {
-  admin:['dashboard','products','categories','suppliers','sales','purchases','inventory','returns','reports','insights','expenses','users','settings','profits'],
-  manager:['dashboard','products','categories','suppliers','sales','purchases','inventory','returns','reports'],
-  cashier:['dashboard','sales','returns'],
+  admin:['dashboard','products','categories','suppliers','sales','purchases','inventory','returns','credit','reports','insights','expenses','users','settings','profits'],
+  manager:['dashboard','products','categories','suppliers','sales','purchases','inventory','returns','credit','reports'],
+  cashier:['dashboard','sales','returns','credit'],
   inventory:['dashboard','products','categories','suppliers','purchases','inventory'],
 };
 function applyRolePermissions() {
@@ -220,6 +220,7 @@ const PAGE_TITLES = {
   dashboard:'Operations Dashboard', products:'Product Catalog', categories:'Categories',
   suppliers:'Supply Chain', sales:'POS Command', purchases:'Purchase Orders',
   inventory:'Inventory Intelligence', returns:'Returns Management',
+  credit:'Credit & Receivables',
   reports:'Capital Analytics', insights:'Intelligence Center',
   expenses:'Expenses', users:'User Management', settings:'System Settings'
 };
@@ -228,7 +229,7 @@ const PAGE_TITLES = {
 const PAGE_TAB_MAP = {
   dashboard:'dashboard', products:'inventory', categories:'inventory',
   suppliers:'inventory', sales:'sales', purchases:'inventory',
-  inventory:'inventory', returns:'sales', reports:'reports',
+  inventory:'inventory', returns:'sales', credit:'sales', reports:'reports',
   insights:'reports', expenses:'reports', users:'dashboard', settings:'dashboard'
 };
 
@@ -342,6 +343,7 @@ async function refreshPage(page) {
     case 'purchases': await renderPurchases(); break;
     case 'inventory': await renderInventory(); break;
     case 'returns': await renderReturns(); break;
+    case 'credit': await renderCredit(); break;
     case 'reports': await generateReport(); break;
     case 'insights': await renderInsights(); break;
     case 'expenses': await renderExpenses(); break;
@@ -665,13 +667,27 @@ async function completeSale() {
   const disc=parseFloat(document.getElementById('cartDiscount').value||0);
   const tax=parseFloat(document.getElementById('cartTax').value||0);
   const payment=document.getElementById('paymentMethod').value;
+  // Credit sale: customer name is required; deposit is what they pay today.
+  let custName='', custPhone='', deposit=0;
+  if (payment === 'Credit') {
+    custName = (document.getElementById('creditCustomerName')?.value||'').trim();
+    custPhone = (document.getElementById('creditCustomerPhone')?.value||'').trim();
+    deposit = parseFloat(document.getElementById('creditDeposit')?.value||0) || 0;
+    if (!custName) {
+      showToast('Enter the customer name for a credit sale','error');
+      document.getElementById('creditCustomerName')?.focus();
+      return;
+    }
+  }
   const items=cart.map(c=>({productId:c.productId,name:c.name,qty:c.qty,unitPrice:c.unitPrice,costPrice:c.costPrice}));
-  const res=await api('complete_sale',JSON.stringify(items),disc,tax,payment,approvalPin);
+  const res=await api('complete_sale',JSON.stringify(items),disc,tax,payment,approvalPin,custName,custPhone,deposit);
   if(!res.ok){ showToast(res.msg,'error'); return; }
   const pinEl = document.getElementById('belowCostPinInput'); if (pinEl) pinEl.value = '';
   showReceipt(res.data);
   cart=[]; renderCart(); renderPOSProducts(); renderSalesHistory();
-  showToast('Sale completed! #'+res.data.id);
+  resetCreditFields();
+  const bal = res.data.balance || 0;
+  showToast(bal > 0 ? `Sale #${res.data.id} on credit — ${money(bal)} owed` : 'Sale completed! #'+res.data.id);
 }
 
 function showReceipt(sale) {
@@ -698,8 +714,102 @@ function showReceipt(sale) {
     <div class="receipt-divider"></div>
     <div class="receipt-line receipt-total"><span>TOTAL</span><span>${money(sale.total)}</span></div>
     <div class="receipt-line"><span>Payment</span><span>${esc(sale.payment)}</span></div>
+    ${sale.customer_name?`<div class="receipt-line"><span>Customer</span><span>${esc(sale.customer_name)}${sale.customer_phone?' · '+esc(sale.customer_phone):''}</span></div>`:''}
+    ${(sale.balance||0)>0?`<div class="receipt-divider"></div>
+      <div class="receipt-line"><span>Paid</span><span>${money(sale.amount_paid||0)}</span></div>
+      <div class="receipt-line receipt-total"><span>BALANCE DUE</span><span>${money(sale.balance)}</span></div>`:''}
     <div class="receipt-footer">Powering Your Store Capital</div>`;
   document.getElementById('receiptModal').classList.remove('hidden');
+}
+
+// ═══════ CREDIT / RECEIVABLES ════════════════════════════
+function onPaymentMethodChange() {
+  const isCredit = document.getElementById('paymentMethod')?.value === 'Credit';
+  const el = document.getElementById('creditFields');
+  if (el) el.classList.toggle('hidden', !isCredit);
+  if (!isCredit) resetCreditFields();
+}
+function resetCreditFields() {
+  ['creditCustomerName','creditCustomerPhone'].forEach(id=>{ const e=document.getElementById(id); if(e) e.value=''; });
+  const d=document.getElementById('creditDeposit'); if(d) d.value='0';
+  const f=document.getElementById('creditFields'); if(f) f.classList.add('hidden');
+  const pm=document.getElementById('paymentMethod'); if(pm && pm.value==='Credit') pm.value='Cash';
+}
+
+async function renderCredit() {
+  const status = document.getElementById('creditStatusFilter')?.value || 'outstanding';
+  const res = await api('get_credit_sales', status);
+  if (!res.ok) { showToast(res.msg,'error'); return; }
+  const { sales, totals } = res.data;
+  document.getElementById('creditOutstanding').textContent = money(totals.outstanding);
+  document.getElementById('creditCustomers').textContent = totals.customers;
+  document.querySelector('#creditTable tbody').innerHTML = sales.map(s=>{
+    const owed = s.balance || 0;
+    const settled = owed <= 0.001;
+    return `<tr>
+      <td>#${s.id}</td>
+      <td>${fmtDate(s.date)}</td>
+      <td>${esc(s.customer_name||'—')}</td>
+      <td>${s.customer_phone?`<a href="tel:${esc(s.customer_phone)}">${esc(s.customer_phone)}</a>`:'—'}</td>
+      <td>${money(s.total)}</td>
+      <td>${money(s.amount_paid||0)}</td>
+      <td class="${settled?'':'val-emphasis'}" style="${settled?'':'color:#ff6b6b;font-weight:700'}">${money(owed)}</td>
+      <td><span class="badge ${settled?'badge-success':'badge-warning'}">${settled?'Settled':'Owing'}</span></td>
+      <td class="actions">
+        ${settled?'':`<button class="btn btn-sm btn-primary" aria-label="Record payment for sale ${s.id}" onclick="openCreditPaymentModal(${s.id})"><span class="material-symbols-outlined" style="font-size:14px">payments</span> Pay</button>`}
+        <button class="btn btn-sm btn-outline" aria-label="Payment history for sale ${s.id}" onclick="openCreditHistory(${s.id})"><span class="material-symbols-outlined" style="font-size:14px">history</span></button>
+      </td></tr>`;
+  }).join('') || emptyRow(9,'handshake', status==='outstanding' ? 'No outstanding credit — everyone has paid' : 'No credit sales here');
+}
+
+async function openCreditPaymentModal(saleId) {
+  const res = await api('get_credit_sales','all');
+  const sale = (res.ok ? res.data.sales : []).find(s=>s.id===saleId);
+  if (!sale) { showToast('Sale not found','error'); return; }
+  openModal(`Record Payment — Sale #${saleId}`,`
+    <form onsubmit="saveCreditPayment(event, ${saleId})">
+      <p style="font-size:0.85rem;margin-bottom:1rem">
+        <strong>${esc(sale.customer_name||'')}</strong>${sale.customer_phone?` · ${esc(sale.customer_phone)}`:''}<br>
+        Total ${money(sale.total)} · Paid ${money(sale.amount_paid||0)} ·
+        <span style="color:#ff6b6b;font-weight:700">Owing ${money(sale.balance||0)}</span>
+      </p>
+      <div class="form-row">
+        <div class="form-group"><label>Amount *</label>
+          <input type="number" step="0.01" min="0.01" max="${sale.balance}" id="cpAmount" value="${(sale.balance||0).toFixed(2)}" required></div>
+        <div class="form-group"><label>Date *</label>
+          <input type="date" id="cpDate" value="${fmt(new Date())}" max="${fmt(new Date())}" required></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>Method</label>
+          <select id="cpMethod"><option>Cash</option><option>Mobile Money</option><option>Card</option><option>Bank Transfer</option></select></div>
+        <div class="form-group"><label>Note</label><input type="text" id="cpNote" placeholder="Optional"></div>
+      </div>
+      <button type="submit" class="btn btn-primary btn-block">Record Payment</button>
+    </form>`);
+}
+
+async function saveCreditPayment(e, saleId) {
+  e.preventDefault();
+  const amount = document.getElementById('cpAmount').value;
+  const date = document.getElementById('cpDate').value;
+  const method = document.getElementById('cpMethod').value;
+  const note = document.getElementById('cpNote').value;
+  const res = await api('record_credit_payment', saleId, amount, method, date, note);
+  if (!res.ok) { showToast(res.msg,'error'); return; }
+  closeModal(); showToast(res.msg); renderCredit(); renderSalesHistory();
+}
+
+async function openCreditHistory(saleId) {
+  const res = await api('get_credit_payments', saleId);
+  const rows = res.ok ? res.data : [];
+  openModal(`Payment History — Sale #${saleId}`, `
+    <div class="table-scroll">
+      <table class="data-table">
+        <thead><tr><th>Date</th><th>Amount</th><th>Method</th><th>Note</th><th>Taken by</th></tr></thead>
+        <tbody>${rows.map(r=>`<tr><td>${fmtDate(r.date)}</td><td>${money(r.amount)}</td><td>${esc(r.method||'')}</td><td>${esc(r.note||'')}</td><td>${esc(r.taken_by||'')}</td></tr>`).join('')
+          || emptyRow(5,'receipt_long','No payments recorded yet')}</tbody>
+      </table>
+    </div>`);
 }
 
 async function renderSalesHistory() {
@@ -734,7 +844,11 @@ async function openPurchaseModal() {
   const prodOpts=(pRes.data||[]).map(p=>`<option value="${p.id}" data-cost="${p.cost_price}">${esc(p.name)} (${esc(p.sku)})</option>`).join('');
   openModal('New Purchase',`
     <form onsubmit="savePurchase(event)">
-      <div class="form-group"><label>Supplier *</label><select id="puSupplier" required><option value="">Select</option>${supOpts}</select></div>
+      <div class="form-row">
+        <div class="form-group"><label>Supplier *</label><select id="puSupplier" required><option value="">Select</option>${supOpts}</select></div>
+        <div class="form-group"><label>Purchase Date *</label><input type="date" id="puDate" value="${fmt(new Date())}" max="${fmt(new Date())}" required>
+          <p style="font-size:0.7rem;color:var(--on-surface-variant);margin-top:0.25rem">Set an earlier date to record a past purchase.</p></div>
+      </div>
       <div id="purchaseItems"><div class="form-row purchase-item-row">
         <div class="form-group"><label>Product *</label><select class="puProduct" required><option value="">Select</option>${prodOpts}</select></div>
         <div class="form-group"><label>Qty *</label><input type="number" class="puQty" min="1" value="10" required></div>
@@ -767,9 +881,10 @@ async function savePurchase(e) {
     if(prod&&qty>0) items.push({productId:pid,name:prod.name,qty,unitCost:cost});
   });
   if(!items.length){ showToast('Add at least one item','error'); return; }
-  const res = await api('save_purchase',supplier,JSON.stringify(items));
+  const poDate = document.getElementById('puDate')?.value || '';
+  const res = await api('save_purchase',supplier,JSON.stringify(items),poDate);
   if (!res.ok) { showToast(res.msg, 'error'); return; }
-  closeModal(); showToast('Purchase recorded'); renderPurchases();
+  closeModal(); showToast('Purchase recorded'); renderPurchases(); renderInventory();
 }
 
 // ═══════ INVENTORY ═══════════════════════════════════════

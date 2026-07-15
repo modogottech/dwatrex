@@ -520,6 +520,8 @@ input, select, textarea, button { font-family: inherit; }
 
 /* ═══════ INSIGHTS — KPI STRIP ═══════════════════════════ */
 .insight-kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1.25rem; margin-bottom: 1.25rem; }
+/* Credit page shows two tiles, so give them a comfortable share of the row. */
+.insight-kpis.credit-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); max-width: 640px; }
 .kpi-tile {
   background: var(--surface-container-low); border-radius: var(--radius-lg);
   padding: 1.1rem 1.25rem; display: flex; flex-direction: column; gap: 0.2rem;

@@ -74,6 +74,30 @@ def get_conn():
     return conn
 
 
+def _migrate(conn):
+    """Additive migrations for databases created by an earlier version.
+
+    Only ever ADDs columns with defaults, so it is safe to run on every launch
+    and never touches existing data.
+    """
+    def cols(table):
+        return {r['name'] for r in conn.execute(f"PRAGMA table_info({table})")}
+
+    sales_cols = cols('sales')
+    for name, ddl in (
+        ('customer_name',  "ALTER TABLE sales ADD COLUMN customer_name TEXT"),
+        ('customer_phone', "ALTER TABLE sales ADD COLUMN customer_phone TEXT"),
+        ('amount_paid',    "ALTER TABLE sales ADD COLUMN amount_paid REAL DEFAULT 0"),
+        ('balance',        "ALTER TABLE sales ADD COLUMN balance REAL DEFAULT 0"),
+    ):
+        if name not in sales_cols:
+            conn.execute(ddl)
+    # Existing (pre-credit) sales were all paid in full.
+    if 'amount_paid' not in sales_cols:
+        conn.execute("UPDATE sales SET amount_paid = total, balance = 0")
+    conn.commit()
+
+
 def init_db():
     conn = get_conn()
     c = conn.cursor()
@@ -119,7 +143,11 @@ def init_db():
         tax_amt     REAL DEFAULT 0,
         total       REAL,
         payment     TEXT,
-        status      TEXT DEFAULT 'Completed'
+        status      TEXT DEFAULT 'Completed',
+        customer_name  TEXT,
+        customer_phone TEXT,
+        amount_paid    REAL DEFAULT 0,
+        balance        REAL DEFAULT 0
     );
     CREATE TABLE IF NOT EXISTS stock_movements (
         id           INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -166,8 +194,21 @@ def init_db():
         payment     TEXT,
         created_by  TEXT
     );
+    CREATE TABLE IF NOT EXISTS credit_payments (
+        id       INTEGER PRIMARY KEY AUTOINCREMENT,
+        sale_id  INTEGER NOT NULL,
+        date     TEXT NOT NULL,
+        amount   REAL NOT NULL DEFAULT 0,
+        method   TEXT,
+        note     TEXT,
+        taken_by TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_credit_payments_sale ON credit_payments(sale_id);
     """)
     conn.commit()
+
+    # Bring older databases up to date (added columns are safe to re-run).
+    _migrate(conn)
 
     # Always ensure default settings exist (currency, tax, thresholds, etc.).
     _seed_settings(conn)

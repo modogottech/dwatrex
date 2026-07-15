@@ -381,5 +381,201 @@ class BelowCostPinTests(BaseCase):
         self.assertIn("4", res["msg"])
 
 
+class BackdatedPurchaseTests(BaseCase):
+    def setUp(self):
+        super().setUp()
+        self.login_as("admin")
+        self.p = self.first_product()
+
+    def _items(self, qty=5):
+        return json.dumps([{"productId": self.p["id"], "name": self.p["name"],
+                            "qty": qty, "unitCost": 3.0}])
+
+    def test_backdated_purchase_uses_given_date(self):
+        import datetime as _dt
+        past = (_dt.date.today() - _dt.timedelta(days=10)).isoformat()
+        self.assertTrue(self.call("save_purchase", "Acme", self._items(), past)["ok"])
+        rows = self.call("get_purchases")["data"]
+        self.assertTrue(any(r["date"].startswith(past) for r in rows))
+
+    def test_backdated_purchase_still_adds_stock(self):
+        import datetime as _dt
+        past = (_dt.date.today() - _dt.timedelta(days=3)).isoformat()
+        start = self.p["stock"]
+        self.assertTrue(self.call("save_purchase", "Acme", self._items(5), past)["ok"])
+        after = next(x for x in self.call("get_all_products")["data"] if x["id"] == self.p["id"])
+        self.assertEqual(after["stock"], start + 5)
+
+    def test_future_date_rejected(self):
+        import datetime as _dt
+        future = (_dt.date.today() + _dt.timedelta(days=2)).isoformat()
+        res = self.call("save_purchase", "Acme", self._items(), future)
+        self.assertFalse(res["ok"])
+        self.assertIn("future", res["msg"].lower())
+
+    def test_blank_date_defaults_to_now(self):
+        import datetime as _dt
+        self.assertTrue(self.call("save_purchase", "Acme", self._items(), "")["ok"])
+        rows = self.call("get_purchases")["data"]
+        self.assertTrue(any(r["date"].startswith(_dt.date.today().isoformat()) for r in rows))
+
+    def test_invalid_date_rejected(self):
+        res = self.call("save_purchase", "Acme", self._items(), "not-a-date")
+        self.assertFalse(res["ok"])
+
+
+class CreditSaleTests(BaseCase):
+    def setUp(self):
+        super().setUp()
+        self.login_as("admin")
+        self.p = self.first_product()
+
+    def _sell_on_credit(self, qty=2, unit=10.0, deposit=0):
+        items = json.dumps([{"productId": self.p["id"], "name": self.p["name"],
+                             "qty": qty, "unitPrice": unit, "costPrice": 1.0}])
+        return self.call("complete_sale", items, 0, 0, "Credit", "", "Ama Mensah", "0240000000", deposit)
+
+    def test_credit_sale_creates_balance(self):
+        res = self._sell_on_credit(qty=2, unit=10.0)          # total 20
+        self.assertTrue(res["ok"], res.get("msg"))
+        s = res["data"]
+        self.assertEqual(s["payment"], "Credit")
+        self.assertEqual(s["status"], "Credit")
+        self.assertAlmostEqual(s["amount_paid"], 0, places=2)
+        self.assertAlmostEqual(s["balance"], 20.0, places=2)
+        self.assertEqual(s["customer_name"], "Ama Mensah")
+
+    def test_credit_sale_requires_customer_name(self):
+        items = json.dumps([{"productId": self.p["id"], "name": self.p["name"],
+                             "qty": 1, "unitPrice": 10.0, "costPrice": 1.0}])
+        res = self.call("complete_sale", items, 0, 0, "Credit", "", "", "", 0)
+        self.assertFalse(res["ok"])
+        self.assertIn("name", res["msg"].lower())
+
+    def test_credit_sale_still_deducts_stock(self):
+        start = self.p["stock"]
+        self._sell_on_credit(qty=2)
+        after = next(x for x in self.call("get_all_products")["data"] if x["id"] == self.p["id"])
+        self.assertEqual(after["stock"], start - 2)
+
+    def test_deposit_reduces_balance(self):
+        s = self._sell_on_credit(qty=2, unit=10.0, deposit=5)["data"]   # total 20, paid 5
+        self.assertAlmostEqual(s["amount_paid"], 5.0, places=2)
+        self.assertAlmostEqual(s["balance"], 15.0, places=2)
+
+    def test_full_deposit_settles_immediately(self):
+        s = self._sell_on_credit(qty=2, unit=10.0, deposit=20)["data"]
+        self.assertAlmostEqual(s["balance"], 0, places=2)
+        self.assertEqual(s["status"], "Completed")
+
+    def test_deposit_cannot_exceed_total(self):
+        items = json.dumps([{"productId": self.p["id"], "name": self.p["name"],
+                             "qty": 1, "unitPrice": 10.0, "costPrice": 1.0}])
+        res = self.call("complete_sale", items, 0, 0, "Credit", "", "Ama", "", 50)
+        self.assertFalse(res["ok"])
+
+    def test_partial_payments_reduce_balance_then_settle(self):
+        sale = self._sell_on_credit(qty=2, unit=10.0)["data"]           # owes 20
+        r1 = self.call("record_credit_payment", sale["id"], 8, "Cash", "", "part 1")
+        self.assertTrue(r1["ok"], r1.get("msg"))
+        self.assertAlmostEqual(r1["data"]["balance"], 12.0, places=2)
+        self.assertFalse(r1["data"]["settled"])
+        r2 = self.call("record_credit_payment", sale["id"], 12, "Mobile Money", "", "final")
+        self.assertTrue(r2["ok"])
+        self.assertAlmostEqual(r2["data"]["balance"], 0, places=2)
+        self.assertTrue(r2["data"]["settled"])
+        # Sale is now settled and drops out of 'outstanding'.
+        out = self.call("get_credit_sales", "outstanding")["data"]["sales"]
+        self.assertFalse(any(x["id"] == sale["id"] for x in out))
+
+    def test_overpayment_rejected(self):
+        sale = self._sell_on_credit(qty=2, unit=10.0)["data"]
+        res = self.call("record_credit_payment", sale["id"], 999, "Cash", "", "")
+        self.assertFalse(res["ok"])
+        self.assertIn("exceeds", res["msg"].lower())
+
+    def test_payment_on_settled_sale_rejected(self):
+        sale = self._sell_on_credit(qty=2, unit=10.0, deposit=20)["data"]
+        res = self.call("record_credit_payment", sale["id"], 5, "Cash", "", "")
+        self.assertFalse(res["ok"])
+
+    def test_zero_or_negative_payment_rejected(self):
+        sale = self._sell_on_credit()["data"]
+        self.assertFalse(self.call("record_credit_payment", sale["id"], 0, "Cash", "", "")["ok"])
+        self.assertFalse(self.call("record_credit_payment", sale["id"], -5, "Cash", "", "")["ok"])
+
+    def test_payment_history_recorded(self):
+        sale = self._sell_on_credit(qty=2, unit=10.0)["data"]
+        self.call("record_credit_payment", sale["id"], 8, "Cash", "", "part 1")
+        hist = self.call("get_credit_payments", sale["id"])["data"]
+        self.assertEqual(len(hist), 1)
+        self.assertAlmostEqual(hist[0]["amount"], 8.0, places=2)
+        self.assertEqual(hist[0]["method"], "Cash")
+
+    def test_outstanding_totals(self):
+        self._sell_on_credit(qty=2, unit=10.0)      # 20 owed
+        self._sell_on_credit(qty=1, unit=10.0)      # 10 owed
+        totals = self.call("get_credit_sales", "outstanding")["data"]["totals"]
+        self.assertAlmostEqual(totals["outstanding"], 30.0, places=2)
+        self.assertEqual(totals["customers"], 1)    # same customer name
+
+    def test_credit_counts_as_revenue_immediately(self):
+        # Accrual: the sale hits revenue on the day goods leave, even if unpaid.
+        before = self.call("get_dashboard_data")["data"]["todaySales"]
+        self._sell_on_credit(qty=2, unit=10.0)      # total 20, nothing paid
+        after = self.call("get_dashboard_data")["data"]["todaySales"]
+        self.assertAlmostEqual(after - before, 20.0, places=2)
+
+    def test_cash_sale_has_no_balance(self):
+        items = json.dumps([{"productId": self.p["id"], "name": self.p["name"],
+                             "qty": 1, "unitPrice": 10.0, "costPrice": 1.0}])
+        s = self.call("complete_sale", items, 0, 0, "Cash")["data"]
+        self.assertAlmostEqual(s["balance"], 0, places=2)
+        self.assertAlmostEqual(s["amount_paid"], s["total"], places=2)
+        self.assertEqual(s["status"], "Completed")
+
+    def test_non_credit_sale_rejects_payment(self):
+        items = json.dumps([{"productId": self.p["id"], "name": self.p["name"],
+                             "qty": 1, "unitPrice": 10.0, "costPrice": 1.0}])
+        s = self.call("complete_sale", items, 0, 0, "Cash")["data"]
+        res = self.call("record_credit_payment", s["id"], 5, "Cash", "", "")
+        self.assertFalse(res["ok"])
+
+    def test_inventory_role_cannot_touch_credit(self):
+        self.login_as("inventory")
+        self.assertFalse(self.call("get_credit_sales")["ok"])
+
+
+class MigrationTests(unittest.TestCase):
+    """An older database (pre-credit columns) must upgrade cleanly on init."""
+
+    def test_legacy_sales_table_is_migrated(self):
+        import sqlite3
+        legacy = os.path.join(tempfile.mkdtemp(prefix="dwatrex_legacy_"), "old.db")
+        conn = sqlite3.connect(legacy)
+        conn.executescript("""
+            CREATE TABLE sales (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT NOT NULL, items_json TEXT NOT NULL,
+                subtotal REAL, discount REAL DEFAULT 0, tax REAL DEFAULT 7.5,
+                discount_amt REAL DEFAULT 0, tax_amt REAL DEFAULT 0, total REAL,
+                payment TEXT, status TEXT DEFAULT 'Completed');
+            INSERT INTO sales(date,items_json,subtotal,total,payment)
+            VALUES('2026-01-01T10:00:00','[]',50,50,'Cash');
+        """)
+        conn.commit(); conn.close()
+
+        conn = sqlite3.connect(legacy)
+        conn.row_factory = sqlite3.Row
+        db._migrate(conn)
+        cols = {r["name"] for r in conn.execute("PRAGMA table_info(sales)")}
+        for c in ("customer_name", "customer_phone", "amount_paid", "balance"):
+            self.assertIn(c, cols)
+        # The pre-existing paid-in-full sale must be backfilled, not left null.
+        row = conn.execute("SELECT amount_paid, balance FROM sales WHERE id=1").fetchone()
+        self.assertAlmostEqual(row["amount_paid"], 50.0, places=2)
+        self.assertAlmostEqual(row["balance"], 0.0, places=2)
+        conn.close()
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
