@@ -1087,6 +1087,68 @@ function insightEmptyRow(cols, icon, msg) {
   return `<tr><td colspan="${cols}"><div class="empty-state"><span class="material-symbols-outlined">${icon}</span><span class="empty-msg">${esc(msg)}</span></div></td></tr>`;
 }
 
+// ── Collapsible panels ───────────────────────────────────
+// Every panel starts expanded (nothing is hidden by surprise); the user's
+// choices persist. Panel keys derive from the heading text — if a heading is
+// ever renamed that panel simply reopens, which is harmless.
+const INSIGHT_COLLAPSE_KEY = 'dwatrex.insights.collapsed';
+
+function _panelKey(card) {
+  const h = card.querySelector('.card-header h3');
+  return h ? h.textContent.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') : '';
+}
+function _loadCollapsed() {
+  try { return new Set(JSON.parse(localStorage.getItem(INSIGHT_COLLAPSE_KEY) || '[]')); }
+  catch (e) { return new Set(); }
+}
+function _saveCollapsed(set) {
+  try { localStorage.setItem(INSIGHT_COLLAPSE_KEY, JSON.stringify([...set])); } catch (e) {}
+}
+// A chart drawn inside a hidden panel has zero size — resize it once visible.
+function resizeChartsIn(el) {
+  el.querySelectorAll('canvas').forEach(cv => {
+    Object.values(chartInstances).forEach(inst => {
+      if (inst && inst.canvas === cv) { try { inst.resize(); } catch (e) {} }
+    });
+  });
+}
+function toggleInsightPanel(card) {
+  const collapsed = card.classList.toggle('collapsed');
+  const header = card.querySelector('.card-header');
+  if (header) header.setAttribute('aria-expanded', String(!collapsed));
+  const set = _loadCollapsed();
+  const key = _panelKey(card);
+  if (collapsed) set.add(key); else set.delete(key);
+  _saveCollapsed(set);
+  if (!collapsed) resizeChartsIn(card);
+}
+function initInsightCollapse() {
+  const page = document.getElementById('page-insights');
+  if (!page || page.dataset.collapseReady) return;   // wire up once
+  const collapsed = _loadCollapsed();
+  page.querySelectorAll('.card').forEach(card => {
+    const header = card.querySelector('.card-header');
+    if (!header) return;                             // skip anything headerless
+    const chev = document.createElement('span');
+    chev.className = 'material-symbols-outlined collapse-chevron';
+    chev.textContent = 'expand_more';
+    chev.setAttribute('aria-hidden', 'true');
+    header.appendChild(chev);
+    header.setAttribute('role', 'button');
+    header.setAttribute('tabindex', '0');
+    header.setAttribute('aria-expanded', 'true');
+    header.addEventListener('click', () => toggleInsightPanel(card));
+    header.addEventListener('keydown', e => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleInsightPanel(card); }
+    });
+    if (collapsed.has(_panelKey(card))) {
+      card.classList.add('collapsed');
+      header.setAttribute('aria-expanded', 'false');
+    }
+  });
+  page.dataset.collapseReady = '1';
+}
+
 // Date-range presets
 function setInsightRange(btn) {
   document.querySelectorAll('#insightPresets .preset-btn').forEach(b=>b.classList.remove('active'));
@@ -1106,6 +1168,7 @@ function onInsightDateManual() {
 }
 
 async function renderInsights() {
+  initInsightCollapse();
   const status=document.getElementById('insightStatus');
   if(status){ status.textContent='Updating…'; status.classList.add('busy'); }
   try {
@@ -1195,6 +1258,12 @@ async function renderInsights() {
     if(!recs.length) recs.push({type:'alert-info',icon:'check_circle',title:'All good!',text:'No urgent recommendations right now.'});
     document.getElementById('insightRecommendations').innerHTML=recs.map(r=>
       `<div class="rec-item ${r.type}"><span class="material-symbols-outlined rec-icon" style="font-size:20px">${r.icon}</span><div class="rec-text"><strong>${esc(r.title)}</strong>${esc(r.text)}</div></div>`).join('');
+
+    // Charts just rebuilt: any that are in an open panel may have been sized
+    // while the page was mid-layout, so settle them on the next frame.
+    requestAnimationFrame(() => {
+      document.querySelectorAll('#page-insights .card:not(.collapsed)').forEach(resizeChartsIn);
+    });
   } finally {
     if(status){ status.textContent=''; status.classList.remove('busy'); }
   }

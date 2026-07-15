@@ -543,6 +543,23 @@ input, select, textarea, button { font-family: inherit; }
 .insights-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; }
 .insights-grid .full-width { grid-column: 1 / -1; }
 .card-meta { font-size: 0.7rem; font-weight: 600; color: var(--outline); }
+
+/* ═══════ COLLAPSIBLE INTELLIGENCE PANELS ════════════════ */
+#page-insights .card-header {
+  justify-content: flex-start; gap: 0.6rem; cursor: pointer; user-select: none;
+}
+#page-insights .card-header:focus-visible {
+  outline: 2px solid var(--tertiary); outline-offset: 4px; border-radius: var(--radius-sm);
+}
+#page-insights .card-header .collapse-chevron {
+  margin-left: auto; font-size: 20px; color: var(--outline);
+  transition: transform 0.2s ease; flex-shrink: 0;
+}
+#page-insights .card.collapsed .collapse-chevron { transform: rotate(-90deg); }
+/* Hide everything except the header, so the title + count still read when closed. */
+#page-insights .card.collapsed > *:not(.card-header) { display: none; }
+#page-insights .card.collapsed .card-header { margin-bottom: 0; }
+#page-insights .card.collapsed { padding-bottom: 1rem; }
 .chart-box { position: relative; height: 260px; }
 .chart-box canvas { width: 100% !important; height: 100% !important; }
 .table-scroll { max-height: 340px; overflow-y: auto; }
