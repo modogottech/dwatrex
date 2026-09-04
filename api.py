@@ -76,6 +76,34 @@ class StoreHubAPI:
         return perm in ROLE_PERMS.get(self._current_user.get('role'), set())
 
     @staticmethod
+    def get_week_start_day():
+        """Configured first day of the business week: 0=Monday … 6=Sunday."""
+        row = db.query("SELECT value FROM settings WHERE key='weekStart'")
+        try:
+            return max(0, min(6, int(row[0]['value']))) if row else 0
+        except (ValueError, TypeError, KeyError, IndexError):
+            return 0
+
+    @classmethod
+    def _week_start_date(cls, when=None):
+        """Midnight on the first day of the calendar week containing `when`.
+
+        Python's weekday() is 0=Monday … 6=Sunday, matching how the setting is
+        stored, so the offset is a simple modulo.
+        """
+        when = when or datetime.now()
+        start_day = cls.get_week_start_day()
+        days_since = (when.weekday() - start_day) % 7
+        d = (when - timedelta(days=days_since)).date()
+        return datetime(d.year, d.month, d.day)
+
+    @staticmethod
+    def _month_start_date(when=None):
+        """Midnight on the 1st of the calendar month containing `when`."""
+        when = when or datetime.now()
+        return datetime(when.year, when.month, 1)
+
+    @staticmethod
     def _resolve_backdate(date_str):
         """Turn an optional 'YYYY-MM-DD' into a timestamp for a back-dated record.
 
@@ -765,12 +793,16 @@ class StoreHubAPI:
         if err: return err
         now = datetime.now()
         today = now.strftime('%Y-%m-%d')
-        week_ago = (now - timedelta(days=7)).strftime('%Y-%m-%d')
-        month_ago = (now - timedelta(days=30)).strftime('%Y-%m-%d')
+        # "This week" is a true calendar week starting on the configured day
+        # (default Monday), not a rolling 7-day window.
+        week_start = self._week_start_date(now).strftime('%Y-%m-%d')
+        # "This month" is the calendar month to date (1st → now), so sales,
+        # profit and expenses on the dashboard all cover the same period.
+        month_start = self._month_start_date(now).strftime('%Y-%m-%d')
 
         today_sales = db.query("SELECT COALESCE(SUM(total),0) as v FROM sales WHERE date >= ?", (today,))
-        week_sales = db.query("SELECT COALESCE(SUM(total),0) as v FROM sales WHERE date >= ?", (week_ago,))
-        month_sales = db.query("SELECT COALESCE(SUM(total),0) as v FROM sales WHERE date >= ?", (month_ago,))
+        week_sales = db.query("SELECT COALESCE(SUM(total),0) as v FROM sales WHERE date >= ?", (week_start,))
+        month_sales = db.query("SELECT COALESCE(SUM(total),0) as v FROM sales WHERE date >= ?", (month_start,))
         total_tx = db.query("SELECT COUNT(*) as v FROM sales")[0]['v']
         products = db.query("SELECT * FROM products")
         inv_value = sum(p['stock'] * p['cost_price'] for p in products)
@@ -778,7 +810,7 @@ class StoreHubAPI:
         total_prods = len(products)
 
         # Gross profit last 30 days
-        month_sales_rows = db.query("SELECT items_json FROM sales WHERE date >= ?", (month_ago,))
+        month_sales_rows = db.query("SELECT items_json FROM sales WHERE date >= ?", (month_start,))
         revenue = cost = 0
         for row in month_sales_rows:
             for item in json.loads(row['items_json']):
@@ -787,13 +819,18 @@ class StoreHubAPI:
         profit = revenue - cost
 
         # Operating expenses last 30 days -> net profit
-        month_expenses = db.query("SELECT COALESCE(SUM(amount),0) as v FROM expenses WHERE date >= ?", (month_ago,))[0]['v']
+        month_expenses = db.query("SELECT COALESCE(SUM(amount),0) as v FROM expenses WHERE date >= ?", (month_start,))[0]['v']
         net_profit = profit - month_expenses
 
         payload = {
             'todaySales': today_sales[0]['v'],
             'weekSales': week_sales[0]['v'],
+            # So the tile can show which week it is actually reporting on.
+            'weekStartDate': week_start,
+            'weekStartLabel': self._week_start_date(now).strftime('%a %d %b'),
             'monthSales': month_sales[0]['v'],
+            'monthStartDate': month_start,
+            'monthStartLabel': self._month_start_date(now).strftime('%b %Y'),
             'transactions': total_tx,
             'inventoryValue': inv_value,
             'lowStock': low_stock,

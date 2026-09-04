@@ -230,6 +230,8 @@ def _seed_settings(conn):
         'storeName': 'My Store', 'storeAddress': '', 'storePhone': '', 'storeEmail': '',
         'currency': 'GH₵', 'taxRate': '7.5',
         'lowStockThreshold': '10', 'fastMovingThreshold': '50', 'slowMovingThreshold': '5',
+        # Which day the business week starts on: 0=Monday … 6=Sunday.
+        'weekStart': '0',
     }
     for k, v in defaults.items():
         c.execute("INSERT OR IGNORE INTO settings(key,value) VALUES(?,?)", (k, v))

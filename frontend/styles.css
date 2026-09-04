@@ -332,6 +332,11 @@ input, select, textarea, button { font-family: inherit; }
   font-size: 0.6rem; font-weight: 600; color: var(--on-primary-container);
   text-transform: uppercase; letter-spacing: 0.2em; margin-bottom: 0.5rem;
 }
+/* Small qualifier inside a metric label, e.g. "THIS WEEK since Mon 31 Aug". */
+.metric-card .metric-label .metric-sub {
+  text-transform: none; letter-spacing: 0; font-weight: 500;
+  color: var(--outline); margin-left: 0.35rem;
+}
 .metric-card .metric-value {
   font-family: 'Manrope'; font-size: 1.8rem; font-weight: 800;
   color: var(--on-background); letter-spacing: -0.03em;

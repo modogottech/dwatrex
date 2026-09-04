@@ -378,6 +378,10 @@ async function renderDashboard() {
   const d = res.data;
   document.getElementById('metricTodaySales').textContent = money(d.todaySales);
   document.getElementById('metricWeekSales').textContent = money(d.weekSales);
+  const wf = document.getElementById('metricWeekFrom');
+  if (wf) wf.textContent = d.weekStartLabel ? `since ${d.weekStartLabel}` : '';
+  const mf = document.getElementById('metricMonthFrom');
+  if (mf) mf.textContent = d.monthStartLabel || '';
   document.getElementById('metricMonthSales').textContent = money(d.monthSales);
   document.getElementById('metricTransactions').textContent = d.transactions;
   document.getElementById('metricInventoryVal').textContent = money(d.inventoryValue);
@@ -1576,6 +1580,8 @@ async function loadSettings() {
   setVal('settingStoreEmail', d.storeEmail);
   setVal('settingCurrency', d.currency);
   setVal('settingTaxRate', d.taxRate);
+  const ws = document.getElementById('settingWeekStart');
+  if (ws) ws.value = (d.weekStart != null && d.weekStart !== '') ? String(d.weekStart) : '0';
   setVal('settingLowStock', d.lowStockThreshold);
   setVal('settingFastMoving', d.fastMovingThreshold);
   setVal('settingSlowMoving', d.slowMovingThreshold);
@@ -1600,7 +1606,9 @@ async function saveSettings() {
     storeEmail:document.getElementById('settingStoreEmail').value,
     storeLogo:logoDataUrl,
     currency:document.getElementById('settingCurrency').value.trim()||'GH₵',
-    taxRate:document.getElementById('settingTaxRate').value, lowStockThreshold:document.getElementById('settingLowStock').value,
+    taxRate:document.getElementById('settingTaxRate').value,
+    weekStart:document.getElementById('settingWeekStart')?.value ?? '0',
+    lowStockThreshold:document.getElementById('settingLowStock').value,
     fastMovingThreshold:document.getElementById('settingFastMoving').value, slowMovingThreshold:document.getElementById('settingSlowMoving').value};
   // Below-cost approval PIN: clear it, set/change it, or leave it untouched.
   const clearPin = document.getElementById('settingBelowCostPinClear')?.checked;

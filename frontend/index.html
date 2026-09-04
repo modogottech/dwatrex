@@ -183,11 +183,11 @@
           <div class="metric-value" id="metricTodaySales">$0</div>
         </div>
         <div class="metric-card accent-blue">
-          <div class="metric-label">This Week</div>
+          <div class="metric-label">This Week <span class="metric-sub" id="metricWeekFrom"></span></div>
           <div class="metric-value" id="metricWeekSales">$0</div>
         </div>
         <div class="metric-card">
-          <div class="metric-label">This Month</div>
+          <div class="metric-label">This Month <span class="metric-sub" id="metricMonthFrom"></span></div>
           <div class="metric-value" id="metricMonthSales">$0</div>
         </div>
         <div class="metric-card accent-orange">
@@ -203,11 +203,11 @@
           <div class="metric-value" id="metricLowStock">0</div>
         </div>
         <div class="metric-card perm-profits">
-          <div class="metric-label">Gross Profit (30d)</div>
+          <div class="metric-label">Gross Profit <span class="metric-sub">this month</span></div>
           <div class="metric-value" id="metricProfit">$0</div>
         </div>
         <div class="metric-card accent-orange perm-profits">
-          <div class="metric-label">Net Profit (30d)</div>
+          <div class="metric-label">Net Profit <span class="metric-sub">this month</span></div>
           <div class="metric-value" id="metricNetProfit">$0</div>
         </div>
         <div class="metric-card accent-blue">
@@ -647,6 +647,19 @@
           </div>
           <div class="form-group"><label>Currency Symbol</label><input type="text" id="settingCurrency" value="GH₵"></div>
           <div class="form-group"><label>Tax Rate (%)</label><input type="number" id="settingTaxRate" value="7.5"></div>
+          <div class="form-group">
+            <label for="settingWeekStart">Week Starts On</label>
+            <select id="settingWeekStart">
+              <option value="0">Monday</option>
+              <option value="1">Tuesday</option>
+              <option value="2">Wednesday</option>
+              <option value="3">Thursday</option>
+              <option value="4">Friday</option>
+              <option value="5">Saturday</option>
+              <option value="6">Sunday</option>
+            </select>
+            <p style="font-size:0.75rem;color:var(--on-surface-variant);margin-top:0.35rem">Controls the "This Week" figure on the dashboard. It resets each week on this day.</p>
+          </div>
           <div class="form-group"><label>Low Stock Threshold</label><input type="number" id="settingLowStock" value="10"></div>
           <div class="form-group"><label>Fast Moving Threshold (units/month)</label><input type="number" id="settingFastMoving" value="50"></div>
           <div class="form-group"><label>Slow Moving Threshold (units/month)</label><input type="number" id="settingSlowMoving" value="5"></div>

@@ -577,5 +577,152 @@ class MigrationTests(unittest.TestCase):
         conn.close()
 
 
+class WeekStartTests(BaseCase):
+    """'This Week' is a true calendar week starting on the configured day."""
+
+    def setUp(self):
+        super().setUp()
+        self.login_as("admin")
+
+    def _set_week_start(self, day):
+        self.assertTrue(self.call("save_settings", json.dumps({"weekStart": str(day)}))["ok"])
+
+    def test_default_is_monday(self):
+        self.assertEqual(self.api.get_week_start_day(), 0)
+
+    def test_monday_start_resolves_to_that_monday(self):
+        import datetime as _dt
+        self._set_week_start(0)
+        # Wednesday 2 Sep 2026 -> week began Monday 31 Aug 2026.
+        wed = _dt.datetime(2026, 9, 2, 15, 30)
+        self.assertEqual(self.api._week_start_date(wed).date(), _dt.date(2026, 8, 31))
+
+    def test_start_day_itself_returns_same_day_midnight(self):
+        import datetime as _dt
+        self._set_week_start(0)
+        mon = _dt.datetime(2026, 8, 31, 9, 0)
+        got = self.api._week_start_date(mon)
+        self.assertEqual(got, _dt.datetime(2026, 8, 31, 0, 0))   # midnight, not 09:00
+
+    def test_sunday_start_is_configurable(self):
+        import datetime as _dt
+        self._set_week_start(6)                                   # 6 = Sunday
+        wed = _dt.datetime(2026, 9, 2, 15, 30)
+        self.assertEqual(self.api._week_start_date(wed).date(), _dt.date(2026, 8, 30))
+
+    def test_saturday_start_is_configurable(self):
+        import datetime as _dt
+        self._set_week_start(5)                                   # 5 = Saturday
+        wed = _dt.datetime(2026, 9, 2, 15, 30)
+        self.assertEqual(self.api._week_start_date(wed).date(), _dt.date(2026, 8, 29))
+
+    def test_every_start_day_lands_on_that_weekday_and_is_within_7_days(self):
+        import datetime as _dt
+        probe = _dt.datetime(2026, 9, 2, 12, 0)                   # a Wednesday
+        for day in range(7):
+            self._set_week_start(day)
+            start = self.api._week_start_date(probe)
+            self.assertEqual(start.weekday(), day, f"start day {day}")
+            delta = (probe.date() - start.date()).days
+            self.assertTrue(0 <= delta < 7, f"start day {day} gave {delta} days back")
+
+    def test_invalid_setting_falls_back_to_monday(self):
+        db.execute("INSERT OR REPLACE INTO settings(key,value) VALUES('weekStart','nonsense')")
+        self.assertEqual(self.api.get_week_start_day(), 0)
+        db.execute("INSERT OR REPLACE INTO settings(key,value) VALUES('weekStart','99')")
+        self.assertEqual(self.api.get_week_start_day(), 6)        # clamped into range
+
+    def test_dashboard_exposes_week_start(self):
+        self._set_week_start(0)
+        d = self.call("get_dashboard_data")["data"]
+        self.assertIn("weekStartDate", d)
+        self.assertIn("weekStartLabel", d)
+        import datetime as _dt
+        expected = self.api._week_start_date(_dt.datetime.now()).strftime("%Y-%m-%d")
+        self.assertEqual(d["weekStartDate"], expected)
+
+    def test_week_total_only_counts_sales_since_week_start(self):
+        import datetime as _dt
+        self._set_week_start(0)
+        p = self.first_product()
+        items = json.dumps([{"productId": p["id"], "name": p["name"], "qty": 1,
+                             "unitPrice": 10.0, "costPrice": 1.0}])
+        before = self.call("get_dashboard_data")["data"]["weekSales"]
+        self.call("complete_sale", items, 0, 0, "Cash")           # today -> inside the week
+        after = self.call("get_dashboard_data")["data"]["weekSales"]
+        self.assertAlmostEqual(after - before, 10.0, places=2)
+
+        # A sale dated before this week's start must NOT be counted.
+        start = self.api._week_start_date(_dt.datetime.now())
+        older = (start - _dt.timedelta(days=1)).isoformat()
+        db.execute("INSERT INTO sales(date,items_json,subtotal,total,payment,status,amount_paid,balance) "
+                   "VALUES(?,?,?,?,?,?,?,?)", (older, "[]", 999, 999, "Cash", "Completed", 999, 0))
+        after2 = self.call("get_dashboard_data")["data"]["weekSales"]
+        self.assertAlmostEqual(after2, after, places=2, msg="last week's sale leaked into this week")
+
+
+class MonthStartTests(BaseCase):
+    """'This Month' is the calendar month to date, not a rolling 30 days."""
+
+    def setUp(self):
+        super().setUp()
+        self.login_as("admin")
+
+    def test_month_start_is_the_first(self):
+        import datetime as _dt
+        got = self.api._month_start_date(_dt.datetime(2026, 9, 4, 16, 45))
+        self.assertEqual(got, _dt.datetime(2026, 9, 1, 0, 0))
+
+    def test_first_of_month_returns_itself_at_midnight(self):
+        import datetime as _dt
+        got = self.api._month_start_date(_dt.datetime(2026, 9, 1, 8, 30))
+        self.assertEqual(got, _dt.datetime(2026, 9, 1, 0, 0))
+
+    def test_handles_every_month_including_leap_february(self):
+        import datetime as _dt
+        for month in range(1, 13):
+            got = self.api._month_start_date(_dt.datetime(2024, month, 15, 12, 0))  # 2024 is a leap year
+            self.assertEqual(got, _dt.datetime(2024, month, 1, 0, 0))
+        # 29 Feb in a leap year still resolves to 1 Feb.
+        self.assertEqual(self.api._month_start_date(_dt.datetime(2024, 2, 29, 23, 59)),
+                         _dt.datetime(2024, 2, 1, 0, 0))
+
+    def test_dashboard_exposes_month_start(self):
+        import datetime as _dt
+        d = self.call("get_dashboard_data")["data"]
+        expected = self.api._month_start_date(_dt.datetime.now()).strftime("%Y-%m-%d")
+        self.assertEqual(d["monthStartDate"], expected)
+        self.assertTrue(d["monthStartDate"].endswith("-01"), "month must start on the 1st")
+
+    def test_last_months_sale_is_excluded(self):
+        import datetime as _dt
+        p = self.first_product()
+        items = json.dumps([{"productId": p["id"], "name": p["name"], "qty": 1,
+                             "unitPrice": 10.0, "costPrice": 1.0}])
+        self.call("complete_sale", items, 0, 0, "Cash")          # this month
+        before = self.call("get_dashboard_data")["data"]["monthSales"]
+
+        # A sale dated the day before this month began must not be counted.
+        start = self.api._month_start_date(_dt.datetime.now())
+        last_month = (start - _dt.timedelta(days=1)).isoformat()
+        db.execute("INSERT INTO sales(date,items_json,subtotal,total,payment,status,amount_paid,balance) "
+                   "VALUES(?,?,?,?,?,?,?,?)", (last_month, "[]", 500, 500, "Cash", "Completed", 500, 0))
+        after = self.call("get_dashboard_data")["data"]["monthSales"]
+        self.assertAlmostEqual(after, before, places=2, msg="last month's sale leaked into this month")
+
+    def test_profit_and_expenses_use_the_same_month_window(self):
+        """Revenue, profit and expenses must cover one identical period so the
+        dashboard figures reconcile."""
+        import datetime as _dt
+        start = self.api._month_start_date(_dt.datetime.now())
+        old = (start - _dt.timedelta(days=2)).isoformat()
+        # An expense from last month must not drag this month's net profit down.
+        db.execute("INSERT INTO expenses(date,category,description,amount,payment,created_by) "
+                   "VALUES(?,?,?,?,?,?)", (old, "Rent", "last month", 750.0, "Cash", "test"))
+        d = self.call("get_dashboard_data")["data"]
+        self.assertAlmostEqual(d["expenses"], 0.0, places=2)
+        self.assertAlmostEqual(d["netProfit"], d["profit"], places=2)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
