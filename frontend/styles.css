@@ -226,7 +226,22 @@ input, select, textarea, button { font-family: inherit; }
 .sidebar-header .logo-text p { font-size: 0.55rem; text-transform: uppercase; letter-spacing: 0.25em; color: var(--outline); font-weight: 600; }
 .sidebar-close { display: none; background: none; border: none; color: var(--outline); font-size: 1.2rem; cursor: pointer; margin-left: auto; }
 
-.sidebar-nav { flex: 1; display: flex; flex-direction: column; gap: 2px; }
+/* The nav must be allowed to SHRINK before it can scroll: flex items default to
+   min-height:auto, which makes them refuse to go below their content height —
+   so without min-height:0 the list just overflows and gets clipped. */
+.sidebar-nav {
+  flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
+  display: flex; flex-direction: column; gap: 2px;
+  scrollbar-width: thin; scrollbar-color: var(--outline) transparent;
+}
+.sidebar-nav::-webkit-scrollbar { width: 6px; }
+.sidebar-nav::-webkit-scrollbar-track { background: transparent; }
+.sidebar-nav::-webkit-scrollbar-thumb {
+  background: var(--outline); border-radius: 3px; opacity: 0.4;
+}
+.sidebar-nav::-webkit-scrollbar-thumb:hover { background: var(--on-surface-variant); }
+/* Header, CTA and footer must keep their size while the nav absorbs the squeeze. */
+.sidebar-header, .sidebar-cta, .sidebar-footer { flex-shrink: 0; }
 .nav-item {
   display: flex; align-items: center; gap: 0.75rem; padding: 0.7rem 1.5rem;
   color: var(--on-surface-variant); opacity: 0.7; transition: all 0.15s; font-size: 0.85rem;
@@ -743,6 +758,28 @@ input, select, textarea, button { font-family: inherit; }
   .page-actions input, .page-actions select { width: 100%; }
   .pos-grid { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); }
   .page { padding: 1rem; }
+}
+
+/* ═══════ SHORT SCREENS — fit the full menu without scrolling ═══════════
+   14 nav items need ~840px at full size. On a 768px-tall laptop the window is
+   only ~700px, so tighten the sidebar progressively as height shrinks (the
+   breakpoint sits just above 840 so there is no band where it needlessly
+   scrolls). The scrollable nav above is still the safety net below ~560px. */
+@media (max-height: 860px) {
+  .sidebar { padding: 1rem 0; }
+  .sidebar-header { margin-bottom: 1rem; }
+  .sidebar-header .logo-box { width: 34px; height: 34px; }
+  .sidebar-header .logo-box .material-symbols-outlined { font-size: 19px; }
+  .sidebar-header .logo-text h1 { font-size: 1rem; }
+  .nav-item { padding: 0.5rem 1.5rem; font-size: 0.8rem; }
+  .sidebar-cta .btn-primary { padding: 0.55rem; font-size: 0.75rem; }
+  .sidebar-footer { margin-top: 0.5rem; padding-top: 0.5rem; }
+}
+@media (max-height: 700px) {
+  .sidebar-header .logo-text p { display: none; }   /* drop the tagline */
+  .nav-item { padding: 0.4rem 1.25rem; gap: 0.6rem; }
+  .nav-item .material-symbols-outlined { font-size: 18px; }
+  .sidebar-footer { display: none; }                /* recover the last ~60px */
 }
 /* ═══════ FOCUS VISIBILITY (keyboard a11y) ═══════════════ */
 .btn:focus-visible, .nav-item:focus-visible, .topbar-tabs a:focus-visible,
