@@ -56,7 +56,7 @@
     <div class="login-logo">
       <div class="logo-icon"><span class="material-symbols-outlined">factory</span></div>
       <h1>DWATREX</h1>
-      <p>Industrial Forge</p>
+      <p>Retail Operations</p>
     </div>
     <form id="loginForm" onsubmit="return handleLogin(event)">
       <div class="form-group">
@@ -82,7 +82,7 @@
       <div class="logo-box"><span class="material-symbols-outlined">factory</span></div>
       <div class="logo-text">
         <h1>DWATREX</h1>
-        <p>Industrial Forge</p>
+        <p id="sidebarStoreName">Retail Operations</p>
       </div>
       <button class="sidebar-close" aria-label="Close menu" onclick="toggleSidebar()"><span class="material-symbols-outlined">close</span></button>
     </div>
@@ -808,18 +808,19 @@
           </p>
         </div>
         <div class="card">
-          <h3>Platform</h3>
+          <h3>About</h3>
           <div class="form-group">
-            <label>Database</label>
-            <p style="font-size:0.8rem;color:var(--on-primary-container);line-height:1.6">All data is stored in a local SQLite database. Your data is private and works fully offline.</p>
+            <p style="font-size:0.8rem;color:var(--on-primary-container);line-height:1.7">
+              Your sales, stock and customer records stay on this computer.
+              Dwatrex works fully offline — no internet connection is needed to trade.
+            </p>
+            <p style="font-size:0.8rem;color:var(--on-primary-container);line-height:1.7;margin-top:0.75rem">
+              Keep regular backups so your records are safe if this computer is lost or damaged.
+            </p>
           </div>
-          <div style="margin-top:2rem">
-            <h3>System Info</h3>
-            <div style="margin-top:1rem;font-size:0.75rem;color:var(--on-primary-container);line-height:2">
-              <div>Platform: <span style="color:var(--on-surface)">Dwatrex Industrial Forge v1.0</span></div>
-              <div>Engine: <span style="color:var(--on-surface)">Python + pywebview + SQLite</span></div>
-              <div>Design: <span style="color:var(--on-surface)">The Kinetic Monolith</span></div>
-            </div>
+          <div style="margin-top:1.5rem;font-size:0.75rem;color:var(--on-primary-container);line-height:2">
+            <div>Version: <span style="color:var(--on-surface)">Dwatrex 1.0</span></div>
+            <div>A product of <span style="color:var(--on-surface)">Modogot Tech</span></div>
           </div>
         </div>
       </div>
@@ -827,8 +828,8 @@
 
     <!-- FOOTER -->
     <footer class="app-footer">
-      <span>Dwatrex Industrial Forge &copy; 2026</span>
-      <span>Powering Your Store Capital</span>
+      <span>Dwatrex &copy; 2026 · A product of Modogot Tech</span>
+      <span id="footerStoreName"></span>
     </footer>
 
   </main>

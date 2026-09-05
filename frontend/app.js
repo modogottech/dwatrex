@@ -345,6 +345,10 @@ async function applySettings() {
       email: d.storeEmail || '',
       logo: d.storeLogo || '',
     };
+    const fn = document.getElementById('footerStoreName');
+    if (fn) fn.textContent = storeInfo.name || '';
+    const sn = document.getElementById('sidebarStoreName');
+    if (sn && storeInfo.name) sn.textContent = storeInfo.name;
   }
 }
 
@@ -829,7 +833,7 @@ function showReceipt(sale) {
     ${(sale.balance||0)>0?`<div class="receipt-divider"></div>
       <div class="receipt-line"><span>Paid</span><span>${money(sale.amount_paid||0)}</span></div>
       <div class="receipt-line receipt-total"><span>BALANCE DUE</span><span>${money(sale.balance)}</span></div>`:''}
-    <div class="receipt-footer">Powering Your Store Capital</div>`;
+    <div class="receipt-footer">Thank you for your business</div>`;
   document.getElementById('receiptModal').classList.remove('hidden');
 }
 
@@ -1251,10 +1255,29 @@ async function loadBackupInfo() {
   const el = document.getElementById('backupInfo');
   if (!el || !res.ok) return;
   const d = res.data;
+  // Keep this in plain language: the shop owner needs to know their records are
+  // being backed up and roughly how big they are — not the file layout.
+  const mb = d.dbSizeKb >= 1024 ? `${(d.dbSizeKb/1024).toFixed(1)} MB` : `${d.dbSizeKb} KB`;
   el.innerHTML = `
-    <div><strong>Database size:</strong> ${d.dbSizeKb.toLocaleString()} KB</div>
-    <div><strong>Automatic backups:</strong> ${d.autoBackups}${d.lastAuto?` (latest ${esc(d.lastAuto)})`:''}</div>
-    <div style="word-break:break-all"><strong>Location:</strong> ${esc(d.folder)}</div>`;
+    <div><strong>Your records:</strong> ${mb}</div>
+    <div><strong>Automatic backups:</strong> ${d.autoBackups} saved${d.lastAuto?` · last one ${esc(d.lastAuto)}`:''}</div>
+    <div style="margin-top:0.4rem">
+      <a href="#" onclick="revealBackupFolder();return false;" style="color:var(--tertiary)">Where are my backups?</a>
+    </div>`;
+  window._backupFolder = d.folder;
+}
+
+// The folder path is only shown on request — most users never need it, but it
+// matters when copying backups to a USB stick.
+function revealBackupFolder() {
+  openModal('Backup Location', `
+    <p style="font-size:0.85rem;line-height:1.7">Automatic backups are saved in this folder on this computer:</p>
+    <p style="font-size:0.78rem;word-break:break-all;background:var(--surface-container-highest);
+              padding:0.75rem;border-radius:var(--radius-sm);margin:0.75rem 0">${esc(window._backupFolder||'')}</p>
+    <p style="font-size:0.8rem;color:var(--on-surface-variant);line-height:1.7">
+      Use <strong>Back Up Now</strong> to save a copy somewhere you choose — a USB stick or a
+      cloud-synced folder is safest, so your records survive if this computer is lost.
+    </p>`);
 }
 async function doBackup() {
   showToast('Preparing backup…');
