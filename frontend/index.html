@@ -87,7 +87,7 @@
       <button class="sidebar-close" aria-label="Close menu" onclick="toggleSidebar()"><span class="material-symbols-outlined">close</span></button>
     </div>
 
-    <nav class="sidebar-nav">
+    <div class="sidebar-nav-wrap"><nav class="sidebar-nav">
       <a href="#" class="nav-item active" data-page="dashboard" onclick="navigateTo('dashboard',this)">
         <span class="material-symbols-outlined">dashboard</span><span>Dashboard</span>
       </a>
@@ -112,8 +112,14 @@
       <a href="#" class="nav-item" data-page="returns" onclick="navigateTo('returns',this)">
         <span class="material-symbols-outlined">assignment_return</span><span>Returns</span>
       </a>
+      <a href="#" class="nav-item" data-page="quotes" onclick="navigateTo('quotes',this)">
+        <span class="material-symbols-outlined">request_quote</span><span>Quotes</span>
+      </a>
       <a href="#" class="nav-item" data-page="credit" onclick="navigateTo('credit',this)">
         <span class="material-symbols-outlined">handshake</span><span>Credit</span>
+      </a>
+      <a href="#" class="nav-item" data-page="audit" onclick="navigateTo('audit',this)">
+        <span class="material-symbols-outlined">history_edu</span><span>Activity Log</span>
       </a>
       <a href="#" class="nav-item" data-page="reports" onclick="navigateTo('reports',this)">
         <span class="material-symbols-outlined">analytics</span><span>Reports</span>
@@ -130,7 +136,7 @@
       <a href="#" class="nav-item" data-page="settings" onclick="navigateTo('settings',this)">
         <span class="material-symbols-outlined">manufacturing</span><span>Settings</span>
       </a>
-    </nav>
+    </nav></div>
 
     <div class="sidebar-cta">
       <button class="btn btn-primary" onclick="navigateTo('sales',document.querySelector('[data-page=sales]'))">
@@ -253,6 +259,7 @@
           <thead><tr><th>SKU</th><th>Name</th><th>Category</th><th>Cost</th><th>Price</th><th>Stock</th><th>Reorder</th><th>Status</th><th>Actions</th></tr></thead>
           <tbody></tbody>
         </table>
+        <div id="productPager" class="pager"></div>
       </div>
     </section>
 
@@ -296,10 +303,12 @@
       <div class="pos-layout">
         <div class="pos-products">
           <div class="pos-search">
+            <input type="text" id="posScan" class="pos-scan" placeholder="Scan barcode (F4) — or type a code and press Enter" onkeydown="handleScanInput(event)" autocomplete="off">
             <input type="text" id="posSearch" placeholder="Search products by name or SKU..." oninput="renderPOSProducts()">
             <select id="posCategoryFilter" onchange="renderPOSProducts()"><option value="">All</option></select>
           </div>
-          <div class="pos-grid" id="posProductGrid"></div>
+          <div class="pos-count" id="posCount"></div>
+          <div class="pos-list" id="posProductGrid"></div>
         </div>
         <div class="pos-cart">
           <h3><span class="material-symbols-outlined" style="font-size:18px;margin-right:0.5rem">receipt_long</span>Current Sale</h3>
@@ -310,6 +319,16 @@
             <div class="cart-row"><label>Tax (%)</label><input type="number" id="cartTax" value="7.5" min="0" oninput="updateCartTotals()"></div>
             <div class="cart-row total"><span>Total</span><span id="cartTotal">$0.00</span></div>
             <div class="cart-row"><label>Payment</label><select id="paymentMethod" onchange="onPaymentMethodChange()"><option>Cash</option><option>Mobile Money</option><option>Card</option><option>Bank Transfer</option><option>Credit</option></select></div>
+            <div id="tenderFields">
+              <div class="cart-row" style="flex-direction:column;align-items:stretch;gap:4px">
+                <label for="cashTendered">Amount Tendered</label>
+                <input type="number" step="0.01" min="0" id="cashTendered" placeholder="0.00" oninput="updateChangeDue()" autocomplete="off">
+                <div class="quick-tender" id="quickTender"></div>
+              </div>
+              <div class="cart-row change-row hidden" id="changeRow">
+                <span>Change Due</span><span id="changeDue">0.00</span>
+              </div>
+            </div>
             <div class="hidden" id="creditFields">
               <div class="cart-row" style="flex-direction:column;align-items:stretch;gap:4px">
                 <label>Customer Name *</label>
@@ -330,7 +349,13 @@
               <input type="password" id="belowCostPinInput" placeholder="Manager PIN required" autocomplete="off">
             </div>
             <div class="cart-buttons">
-              <button class="btn btn-primary btn-block" onclick="completeSale()"><span class="material-symbols-outlined">check_circle</span> Complete Sale</button>
+              <button class="btn btn-primary btn-block" onclick="completeSale()" title="F9"><span class="material-symbols-outlined">check_circle</span> Complete Sale</button>
+              <div class="cart-secondary-actions">
+                <button class="btn btn-outline btn-sm" onclick="openQuoteModal()" title="Save as a price estimate — no stock is used"><span class="material-symbols-outlined" style="font-size:15px">request_quote</span> Quote</button>
+                <button class="btn btn-outline btn-sm" onclick="holdCurrentSale()" title="Park this cart (F2)"><span class="material-symbols-outlined" style="font-size:15px">pause_circle</span> Hold</button>
+                <button class="btn btn-outline btn-sm" onclick="openHeldSales()" title="Resume a held sale (F3)"><span class="material-symbols-outlined" style="font-size:15px">list_alt</span> Held <span id="heldCount" class="held-badge hidden">0</span></button>
+                <button class="btn btn-outline btn-sm" onclick="openSplitPayment()" title="Split across two payment methods"><span class="material-symbols-outlined" style="font-size:15px">call_split</span> Split</button>
+              </div>
               <button class="btn btn-outline btn-block" onclick="clearCart()"><span class="material-symbols-outlined">delete_sweep</span> Clear Cart</button>
             </div>
           </div>
@@ -368,6 +393,11 @@
       <div class="page-title-section">
         <h2>Inventory Intelligence</h2>
         <p>Stock levels, movements, and health metrics</p>
+      </div>
+      <div class="page-header">
+        <div class="page-actions">
+          <button class="btn btn-primary" onclick="openAdjustModal()"><span class="material-symbols-outlined">tune</span> Adjust Stock</button>
+        </div>
       </div>
       <div class="metric-cards">
         <div class="metric-card accent-blue">
@@ -413,6 +443,69 @@
       </div>
     </section>
 
+    <!-- ═══════ QUOTES / PRICE ESTIMATES ════════════════════ -->
+    <section id="page-quotes" class="page">
+      <div class="page-title-section">
+        <h2>Quotes &amp; Estimates</h2>
+        <p>Price up a job for a customer without touching stock — convert it to a sale when they agree</p>
+      </div>
+      <div class="insight-kpis credit-kpis">
+        <div class="kpi-tile">
+          <div class="kpi-label">Open Quotes Value</div>
+          <div class="kpi-value" id="quotesOpenValue">0</div>
+        </div>
+        <div class="kpi-tile">
+          <div class="kpi-label">Open Quotes</div>
+          <div class="kpi-value" id="quotesOpenCount">0</div>
+        </div>
+      </div>
+      <div class="page-header">
+        <div class="page-actions">
+          <select id="quoteStatusFilter" onchange="renderQuotes()">
+            <option value="Open">Open</option>
+            <option value="Converted">Converted</option>
+            <option value="Cancelled">Cancelled</option>
+            <option value="">All</option>
+          </select>
+          <button class="btn btn-primary" onclick="navigateTo('sales',document.querySelector('[data-page=sales]'))">
+            <span class="material-symbols-outlined">add</span> New Quote (from POS)
+          </button>
+        </div>
+      </div>
+      <div class="card">
+        <div class="table-scroll">
+          <table class="data-table" id="quotesTable">
+            <thead><tr><th>Quote</th><th>Date</th><th>Customer</th><th>Phone</th><th>Items</th><th>Total</th><th>Status</th><th>Actions</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══════ AUDIT LOG ═══════════════════════════════════ -->
+    <section id="page-audit" class="page">
+      <div class="page-title-section">
+        <h2>Activity Log</h2>
+        <p>A permanent record of who did what — price overrides, approvals, voids, deletions and stock changes</p>
+      </div>
+      <div class="page-header">
+        <div class="page-actions">
+          <input type="date" id="auditFrom" onchange="renderAudit()">
+          <input type="date" id="auditTo" onchange="renderAudit()">
+          <select id="auditAction" onchange="renderAudit()"><option value="">All activity</option></select>
+          <button class="btn btn-outline" onclick="exportAudit()"><span class="material-symbols-outlined">download</span> Export CSV</button>
+        </div>
+      </div>
+      <div class="card">
+        <div class="table-scroll">
+          <table class="data-table" id="auditTable">
+            <thead><tr><th>When</th><th>User</th><th>Role</th><th>Action</th><th>Item</th><th>Details</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
     <!-- ═══════ CREDIT / RECEIVABLES ════════════════════════ -->
     <section id="page-credit" class="page">
       <div class="page-title-section">
@@ -431,6 +524,10 @@
       </div>
       <div class="page-header">
         <div class="page-actions">
+          <select id="creditView" onchange="renderCredit()">
+            <option value="customers">By customer (ageing)</option>
+            <option value="sales">By sale</option>
+          </select>
           <select id="creditStatusFilter" onchange="renderCredit()">
             <option value="outstanding">Outstanding</option>
             <option value="settled">Settled</option>
@@ -438,10 +535,19 @@
           </select>
         </div>
       </div>
-      <div class="card">
+      <div class="card" id="creditSalesCard">
         <div class="table-scroll">
           <table class="data-table" id="creditTable">
             <thead><tr><th>Sale</th><th>Date</th><th>Customer</th><th>Phone</th><th>Total</th><th>Paid</th><th>Balance</th><th>Status</th><th>Actions</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="card hidden" id="creditAgeingCard">
+        <div class="card-header"><h3>Who owes what</h3><span class="card-meta">Aged from the sale date — chase the right column first</span></div>
+        <div class="table-scroll">
+          <table class="data-table" id="creditAgeingTable">
+            <thead><tr><th>Customer</th><th>Phone</th><th>Sales</th><th>Current<br><small>0–30d</small></th><th>30–60d</th><th>60–90d</th><th>Over 90d</th><th>Total Owed</th><th>Actions</th></tr></thead>
             <tbody></tbody>
           </table>
         </div>
@@ -593,6 +699,7 @@
           <label style="font-size:0.6rem;font-weight:700;color:var(--outline);text-transform:uppercase;letter-spacing:0.15em">To</label>
           <input type="date" id="expenseTo" onchange="renderExpenses()">
           <button class="btn btn-primary" onclick="openExpenseModal()"><span class="material-symbols-outlined">add</span> Add Expense</button>
+          <button class="btn btn-outline" onclick="openRecurringModal()"><span class="material-symbols-outlined">event_repeat</span> Recurring</button>
         </div>
       </div>
       <div class="card">
@@ -646,7 +753,20 @@
             </div>
           </div>
           <div class="form-group"><label>Currency Symbol</label><input type="text" id="settingCurrency" value="GH₵"></div>
-          <div class="form-group"><label>Tax Rate (%)</label><input type="number" id="settingTaxRate" value="7.5"></div>
+          <div class="form-group">
+            <label>Tax Components</label>
+            <div id="taxComponents"></div>
+            <div style="display:flex;gap:0.5rem;align-items:center;margin-top:0.4rem">
+              <button type="button" class="btn btn-outline btn-sm" onclick="addTaxComponent()"><span class="material-symbols-outlined" style="font-size:14px">add</span> Add component</button>
+              <span style="font-size:0.78rem;color:var(--on-surface-variant)">Total: <strong id="taxTotalRate">0%</strong></span>
+            </div>
+            <p style="font-size:0.72rem;color:var(--on-surface-variant);margin-top:0.35rem">
+              Ghana charges several levies rather than one rate (e.g. VAT, NHIL, GETFund).
+              Add each separately so they appear individually on the receipt.
+              Verify the current rates with the GRA.
+            </p>
+          </div>
+          <input type="hidden" id="settingTaxRate" value="7.5">
           <div class="form-group">
             <label for="settingWeekStart">Week Starts On</label>
             <select id="settingWeekStart">
@@ -670,6 +790,22 @@
             <label style="font-size:0.8rem;font-weight:400;display:flex;align-items:center;gap:6px;margin-top:0.4rem"><input type="checkbox" id="settingBelowCostPinClear" style="width:auto"> Remove PIN requirement</label>
           </div>
           <button class="btn btn-primary" onclick="saveSettings()"><span class="material-symbols-outlined">save</span> Save Settings</button>
+        </div>
+        <div class="card">
+          <h3>Backup &amp; Restore</h3>
+          <p style="font-size:0.8rem;color:var(--on-surface-variant);line-height:1.6;margin-bottom:1rem">
+            Your entire business — products, sales, credit and expenses — lives in one file.
+            Back it up regularly to a USB stick or a cloud-synced folder.
+          </p>
+          <div id="backupInfo" style="font-size:0.78rem;color:var(--on-surface-variant);line-height:1.7;margin-bottom:1rem"></div>
+          <div class="page-actions" style="gap:0.5rem;flex-wrap:wrap">
+            <button class="btn btn-primary" onclick="doBackup()"><span class="material-symbols-outlined">backup</span> Back Up Now</button>
+            <button class="btn btn-outline" onclick="doRestore()"><span class="material-symbols-outlined">restore</span> Restore from Backup</button>
+          </div>
+          <p style="font-size:0.72rem;color:var(--outline);margin-top:0.75rem">
+            A dated backup is also taken automatically once a day (the newest 10 are kept).
+            Restoring replaces all current data — a safety copy of the current database is made first.
+          </p>
         </div>
         <div class="card">
           <h3>Platform</h3>

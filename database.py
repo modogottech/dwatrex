@@ -74,6 +74,84 @@ def get_conn():
     return conn
 
 
+def backup_to(dest_path):
+    """Copy the live database to `dest_path` using SQLite's own backup API.
+
+    Safer than copying the file: it takes a consistent snapshot even while the
+    app has the database open with WAL journaling.
+    """
+    src = get_conn()
+    try:
+        dest = sqlite3.connect(dest_path)
+        try:
+            src.backup(dest)
+        finally:
+            dest.close()
+    finally:
+        src.close()
+    return dest_path
+
+
+def restore_from(src_path):
+    """Replace the live database with `src_path` after validating it.
+
+    The current database is copied to a .pre-restore file first, so a bad
+    restore is always reversible.
+    """
+    if not os.path.exists(src_path):
+        raise ValueError("Backup file not found")
+    # Validate: must be SQLite and contain the tables we expect.
+    probe = sqlite3.connect(f"file:{src_path}?mode=ro", uri=True)
+    try:
+        names = {r[0] for r in probe.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'")}
+        required = {'sales', 'products', 'users', 'settings'}
+        missing = required - names
+        if missing:
+            raise ValueError("That file is not a Dwatrex backup "
+                             f"(missing: {', '.join(sorted(missing))})")
+        probe.execute("PRAGMA quick_check")
+    except sqlite3.DatabaseError:
+        raise ValueError("That file is not a readable database")
+    finally:
+        probe.close()
+
+    safety = DB_PATH + '.pre-restore'
+    if os.path.exists(DB_PATH):
+        backup_to(safety)
+    # Write the backup's contents into the live file in place, so any open
+    # handles keep pointing at a valid database.
+    src = sqlite3.connect(f"file:{src_path}?mode=ro", uri=True)
+    try:
+        dest = sqlite3.connect(DB_PATH)
+        try:
+            src.backup(dest)
+        finally:
+            dest.close()
+    finally:
+        src.close()
+    init_db()          # apply any migrations the backup predates
+    return safety
+
+
+def auto_backup(keep=10):
+    """Write a dated backup next to the database, keeping the newest `keep`."""
+    folder = os.path.join(os.path.dirname(DB_PATH), 'backups')
+    os.makedirs(folder, exist_ok=True)
+    stamp = datetime.now().strftime('%Y-%m-%d')
+    path = os.path.join(folder, f'dwatrex-{stamp}.db')
+    if not os.path.exists(path):          # one per day is enough
+        backup_to(path)
+    files = sorted((f for f in os.listdir(folder)
+                    if f.startswith('dwatrex-') and f.endswith('.db')), reverse=True)
+    for old in files[keep:]:
+        try:
+            os.remove(os.path.join(folder, old))
+        except OSError:
+            pass
+    return path
+
+
 def _migrate(conn):
     """Additive migrations for databases created by an earlier version.
 
@@ -82,6 +160,14 @@ def _migrate(conn):
     """
     def cols(table):
         return {r['name'] for r in conn.execute(f"PRAGMA table_info({table})")}
+
+    def has_table(name):
+        return conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (name,)).fetchone() is not None
+
+    if not has_table('sales'):
+        conn.commit()
+        return                      # nothing to migrate yet
 
     sales_cols = cols('sales')
     for name, ddl in (
@@ -95,6 +181,58 @@ def _migrate(conn):
     # Existing (pre-credit) sales were all paid in full.
     if 'amount_paid' not in sales_cols:
         conn.execute("UPDATE sales SET amount_paid = total, balance = 0")
+
+    # Void support + cash handling (added later; safe to re-run).
+    for name, ddl in (
+        ('voided',      "ALTER TABLE sales ADD COLUMN voided INTEGER DEFAULT 0"),
+        ('void_reason', "ALTER TABLE sales ADD COLUMN void_reason TEXT"),
+        ('tendered',    "ALTER TABLE sales ADD COLUMN tendered REAL"),
+        ('change_due',  "ALTER TABLE sales ADD COLUMN change_due REAL"),
+    ):
+        if name not in sales_cols:
+            conn.execute(ddl)
+
+    # Products gained a unit of measure (see the per-yard vs per-roll problem)
+    # and a barcode for scan-to-add at the till.
+    if has_table('products'):
+        pcols = cols('products')
+        if 'unit' not in pcols:
+            conn.execute("ALTER TABLE products ADD COLUMN unit TEXT DEFAULT 'each'")
+        if 'barcode' not in pcols:
+            conn.execute("ALTER TABLE products ADD COLUMN barcode TEXT")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_products_barcode ON products(barcode)")
+
+    # Backfill sale_items from the JSON blob for sales recorded before the
+    # normalised table existed. Runs once; afterwards the counts match.
+    try:
+        if not has_table('sale_items'):
+            raise sqlite3.OperationalError('sale_items not created yet')
+        have = conn.execute("SELECT COUNT(*) AS c FROM sale_items").fetchone()['c']
+        if have == 0:
+            n = conn.execute("SELECT COUNT(*) AS c FROM sales").fetchone()['c']
+            if n:
+                cat_of = ({r['name']: r['category']
+                           for r in conn.execute("SELECT name, category FROM products")}
+                          if has_table('products') else {})
+                rows = []
+                for s in conn.execute("SELECT id, date, items_json FROM sales"):
+                    try:
+                        items = json.loads(s['items_json'] or '[]')
+                    except (ValueError, TypeError):
+                        continue
+                    for it in items:
+                        rows.append((
+                            s['id'], it.get('productId'), it.get('name'),
+                            cat_of.get(it.get('name')),
+                            it.get('qty', 0), it.get('unitPrice', 0),
+                            it.get('costPrice', 0), s['date']))
+                if rows:
+                    conn.executemany(
+                        "INSERT INTO sale_items(sale_id,product_id,name,category,qty,unit_price,cost_price,date) "
+                        "VALUES(?,?,?,?,?,?,?,?)", rows)
+    except sqlite3.Error:
+        pass   # a partially-built database shouldn't block startup
+
     conn.commit()
 
 
@@ -127,10 +265,12 @@ def init_db():
         supplier      TEXT,
         cost_price    REAL NOT NULL DEFAULT 0,
         selling_price REAL NOT NULL DEFAULT 0,
-        stock         INTEGER NOT NULL DEFAULT 0,
-        reorder_level INTEGER NOT NULL DEFAULT 10,
+        stock         REAL NOT NULL DEFAULT 0,
+        reorder_level REAL NOT NULL DEFAULT 10,
         expiry        TEXT,
-        status        TEXT NOT NULL DEFAULT 'In Stock'
+        status        TEXT NOT NULL DEFAULT 'In Stock',
+        unit          TEXT DEFAULT 'each',
+        barcode       TEXT
     );
     CREATE TABLE IF NOT EXISTS sales (
         id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -203,7 +343,105 @@ def init_db():
         note     TEXT,
         taken_by TEXT
     );
+    -- Normalised sale lines. Written alongside sales.items_json (which is kept
+    -- for receipts) so reporting can use SQL GROUP BY instead of parsing JSON
+    -- for every sale in the browser.
+    CREATE TABLE IF NOT EXISTS sale_items (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        sale_id    INTEGER NOT NULL,
+        product_id INTEGER,
+        name       TEXT,
+        category   TEXT,
+        qty        REAL NOT NULL DEFAULT 0,
+        unit_price REAL NOT NULL DEFAULT 0,
+        cost_price REAL NOT NULL DEFAULT 0,
+        date       TEXT NOT NULL
+    );
+    -- Who did what, when. Append-only; never updated or deleted by the app.
+    CREATE TABLE IF NOT EXISTS audit_log (
+        id        INTEGER PRIMARY KEY AUTOINCREMENT,
+        date      TEXT NOT NULL,
+        user_id   INTEGER,
+        user_name TEXT,
+        role      TEXT,
+        action    TEXT NOT NULL,
+        entity    TEXT,
+        entity_id TEXT,
+        detail    TEXT
+    );
+    CREATE TABLE IF NOT EXISTS stock_adjustments (
+        id           INTEGER PRIMARY KEY AUTOINCREMENT,
+        date         TEXT NOT NULL,
+        product_id   INTEGER NOT NULL,
+        product_name TEXT,
+        before_qty   REAL,
+        after_qty    REAL,
+        delta        REAL,
+        reason       TEXT,
+        note         TEXT,
+        adjusted_by  TEXT
+    );
+    -- Price estimates. A quote never touches stock and books no revenue; it
+    -- becomes a real sale only when converted.
+    CREATE TABLE IF NOT EXISTS quotes (
+        id             INTEGER PRIMARY KEY AUTOINCREMENT,
+        date           TEXT NOT NULL,
+        customer_name  TEXT,
+        customer_phone TEXT,
+        items_json     TEXT NOT NULL,
+        subtotal       REAL,
+        discount       REAL DEFAULT 0,
+        tax            REAL DEFAULT 0,
+        discount_amt   REAL DEFAULT 0,
+        tax_amt        REAL DEFAULT 0,
+        total          REAL,
+        notes          TEXT,
+        status         TEXT DEFAULT 'Open',   -- Open | Converted | Cancelled
+        sale_id        INTEGER,               -- set once converted
+        created_by     TEXT
+    );
+    -- A parked cart, so a till is never blocked by one waiting customer.
+    CREATE TABLE IF NOT EXISTS held_sales (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        date       TEXT NOT NULL,
+        label      TEXT,
+        items_json TEXT NOT NULL,
+        discount   REAL DEFAULT 0,
+        tax        REAL DEFAULT 0,
+        held_by    TEXT
+    );
+    -- Second leg of a split payment (e.g. part cash, part mobile money).
+    CREATE TABLE IF NOT EXISTS sale_payments (
+        id      INTEGER PRIMARY KEY AUTOINCREMENT,
+        sale_id INTEGER NOT NULL,
+        method  TEXT,
+        amount  REAL NOT NULL DEFAULT 0
+    );
+    -- Fixed monthly costs that should post themselves (rent, salaries).
+    CREATE TABLE IF NOT EXISTS recurring_expenses (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        category    TEXT,
+        description TEXT,
+        amount      REAL NOT NULL DEFAULT 0,
+        payment     TEXT,
+        day_of_month INTEGER DEFAULT 1,
+        active      INTEGER DEFAULT 1,
+        last_posted TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_quotes_date        ON quotes(date);
+    CREATE INDEX IF NOT EXISTS idx_quotes_status      ON quotes(status);
+    CREATE INDEX IF NOT EXISTS idx_sale_payments_sale ON sale_payments(sale_id);
     CREATE INDEX IF NOT EXISTS idx_credit_payments_sale ON credit_payments(sale_id);
+    CREATE INDEX IF NOT EXISTS idx_sale_items_sale     ON sale_items(sale_id);
+    CREATE INDEX IF NOT EXISTS idx_sale_items_product  ON sale_items(product_id);
+    CREATE INDEX IF NOT EXISTS idx_sale_items_date     ON sale_items(date);
+    CREATE INDEX IF NOT EXISTS idx_sales_date          ON sales(date);
+    CREATE INDEX IF NOT EXISTS idx_sales_payment       ON sales(payment);
+    CREATE INDEX IF NOT EXISTS idx_expenses_date       ON expenses(date);
+    CREATE INDEX IF NOT EXISTS idx_movements_product   ON stock_movements(product_id);
+    CREATE INDEX IF NOT EXISTS idx_movements_date      ON stock_movements(date);
+    CREATE INDEX IF NOT EXISTS idx_audit_date          ON audit_log(date);
+    CREATE INDEX IF NOT EXISTS idx_returns_sale        ON returns(sale_id);
     """)
     conn.commit()
 

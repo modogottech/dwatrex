@@ -75,6 +75,38 @@ class StoreHubAPI:
             return False
         return perm in ROLE_PERMS.get(self._current_user.get('role'), set())
 
+    def _audit(self, action, entity=None, entity_id=None, detail=None, conn=None):
+        """Append an audit entry. Never raises — auditing must not break the
+        operation it is recording."""
+        try:
+            u = self._current_user or {}
+            row = (datetime.now().isoformat(), u.get('id'), u.get('name'), u.get('role'),
+                   action, entity, str(entity_id) if entity_id is not None else None,
+                   detail if isinstance(detail, str) else (json.dumps(detail) if detail else None))
+            sql = ("INSERT INTO audit_log(date,user_id,user_name,role,action,entity,entity_id,detail) "
+                   "VALUES(?,?,?,?,?,?,?,?)")
+            if conn is not None:
+                conn.execute(sql, row)
+            else:
+                db.execute(sql, row)
+        except Exception:
+            pass
+
+    def get_audit_log(self, date_from="", date_to="", action="", limit=500):
+        """Recent audit entries (admin only)."""
+        err = self._require_perm('users')      # admin-only capability
+        if err: return err
+        sql, params = "SELECT * FROM audit_log WHERE 1=1", []
+        if date_from:
+            sql += " AND date >= ?"; params.append(date_from)
+        if date_to:
+            sql += " AND date <= ?"; params.append(date_to + "T23:59:59")
+        if action:
+            sql += " AND action = ?"; params.append(action)
+        sql += " ORDER BY date DESC LIMIT ?"
+        params.append(int(limit))
+        return self._ok(db.query(sql, tuple(params)))
+
     @staticmethod
     def get_week_start_day():
         """Configured first day of the business week: 0=Monday … 6=Sunday."""
@@ -153,13 +185,43 @@ class StoreHubAPI:
             return self._err(str(e))
 
     # ── Authentication ─────────────────────────────────────
+    # Failed-login tracking (in memory: resets when the app restarts, which is
+    # fine — it exists to stop sustained guessing at the till, not a botnet).
+    _failed_logins = {}
+    LOCKOUT_AFTER = 5
+    LOCKOUT_SECONDS = 60
+
     def login(self, username, password):
         """Authenticate user and return their profile (without password)."""
+        key = (username or '').strip().lower()
+        rec = self._failed_logins.get(key)
+        if rec and rec['count'] >= self.LOCKOUT_AFTER:
+            waited = (datetime.now() - rec['at']).total_seconds()
+            # Each failure past the threshold doubles the wait, capped at 15 min.
+            penalty = min(self.LOCKOUT_SECONDS * (2 ** (rec['count'] - self.LOCKOUT_AFTER)), 900)
+            if waited < penalty:
+                left = int(penalty - waited)
+                return self._err(f"Too many failed attempts. Try again in {left} second"
+                                 f"{'' if left == 1 else 's'}.")
+
         user = db.authenticate_user(username, password)
         if user:
+            self._failed_logins.pop(key, None)
             safe_user = {k: v for k, v in user.items() if k != 'password'}
             self._current_user = {'id': user['id'], 'name': user['name'], 'role': user['role']}
+            self._audit('auth.login', 'user', user['id'], {'username': username})
             return self._ok(safe_user, "Login successful")
+
+        rec = self._failed_logins.setdefault(key, {'count': 0, 'at': datetime.now()})
+        rec['count'] += 1
+        rec['at'] = datetime.now()
+        if rec['count'] == self.LOCKOUT_AFTER:
+            self._audit('auth.lockout', 'user', None,
+                        {'username': username, 'attempts': rec['count']})
+        remaining = self.LOCKOUT_AFTER - rec['count']
+        if 0 < remaining <= 2:
+            return self._err(f"Invalid username or password. {remaining} attempt"
+                             f"{'' if remaining == 1 else 's'} left before a lockout.")
         return self._err("Invalid username or password")
 
     def logout(self):
@@ -218,6 +280,8 @@ class StoreHubAPI:
                                      (db.hash_password(v),))
                         continue
                     conn.execute("INSERT OR REPLACE INTO settings(key,value) VALUES(?,?)", (k, str(v)))
+            self._audit('settings.update', 'settings', None,
+                        {'keys': sorted(k for k in s.keys() if k != 'below_cost_pin')})
             return self._ok(msg="Settings saved")
         except ValueError as e:
             return self._err(str(e))
@@ -329,35 +393,72 @@ class StoreHubAPI:
             return self._err(f"Could not delete supplier: {e}")
 
     # ── Products ────────────────────────────────────────────
-    def get_products(self, search="", category="", status=""):
-        # Readable by any authenticated user (POS needs this for cashiers).
+    # Units a small retailer actually sells in. 'each' is a whole-number unit;
+    # the measured ones allow fractional quantities (2.5 yards of cable).
+    UNITS = ['each', 'yard', 'metre', 'foot', 'kg', 'gram', 'litre', 'box', 'roll', 'pack']
+    WHOLE_UNITS = {'each', 'box', 'pack'}
+
+    def get_units(self):
         err = self._require_auth()
         if err: return err
-        sql = "SELECT * FROM products WHERE 1=1"
-        params = []
+        return self._ok({'units': self.UNITS, 'whole': sorted(self.WHOLE_UNITS)})
+
+    def get_products(self, search="", category="", status="", limit=0, offset=0):
+        """Products, optionally paged. `limit=0` returns everything (the POS
+        and reports need the full list); the catalogue screen passes a page."""
+        err = self._require_auth()
+        if err: return err
+        where, params = "FROM products WHERE 1=1", []
         if search:
-            sql += " AND (name LIKE ? OR sku LIKE ?)"
-            params += [f"%{search}%", f"%{search}%"]
+            where += " AND (name LIKE ? OR sku LIKE ? OR COALESCE(barcode,'') LIKE ?)"
+            params += [f"%{search}%", f"%{search}%", f"%{search}%"]
         if category:
-            sql += " AND category=?"
+            where += " AND category=?"
             params.append(category)
         if status:
-            sql += " AND status=?"
+            where += " AND status=?"
             params.append(status)
-        sql += " ORDER BY name"
-        return self._ok(db.query(sql, params))
+        total = db.query(f"SELECT COUNT(*) AS c {where}", tuple(params))[0]['c']
+        sql = f"SELECT * {where} ORDER BY name"
+        limit = int(_to_number(limit, 0))
+        if limit > 0:
+            sql += " LIMIT ? OFFSET ?"
+            params += [limit, int(_to_number(offset, 0))]
+        rows = db.query(sql, tuple(params))
+        # Older callers expect a bare list; keep that contract and attach the
+        # count separately so pagination is additive, not breaking.
+        return self._ok({'products': rows, 'total': total} if limit > 0 else rows)
+
+    def find_product_by_code(self, code):
+        """Exact lookup by barcode or SKU — the scan-to-add path at the till."""
+        err = self._require_auth()
+        if err: return err
+        code = (code or '').strip()
+        if not code:
+            return self._err("No code supplied")
+        rows = db.query("SELECT * FROM products WHERE barcode=? OR sku=? LIMIT 1", (code, code))
+        if not rows:
+            return self._err(f"No product matches '{code}'")
+        return self._ok(rows[0])
 
     def save_product(self, id, sku, name, category, supplier, cost_price, selling_price,
-                     stock, reorder_level, expiry):
+                     stock, reorder_level, expiry, unit="each", barcode=""):
         err = self._require_perm('products')
         if err: return err
         sku = (sku or '').strip()
         name = (name or '').strip()
+        barcode = (barcode or '').strip()
+        unit = (unit or 'each').strip().lower()
+        if unit not in self.UNITS:
+            unit = 'each'
         if not sku or not name:
             return self._err("SKU and product name are required")
         try:
-            stock = int(stock)
-            reorder_level = int(reorder_level)
+            # Measured goods (cable by the yard) may hold fractional stock.
+            stock = float(stock)
+            if unit in self.WHOLE_UNITS:
+                stock = int(stock)
+            reorder_level = float(reorder_level)
             cost_price = float(cost_price)
             selling_price = float(selling_price)
         except (ValueError, TypeError):
@@ -369,14 +470,16 @@ class StoreHubAPI:
             with db.transaction() as conn:
                 if id:
                     conn.execute("""UPDATE products SET sku=?,name=?,category=?,supplier=?,cost_price=?,
-                                  selling_price=?,stock=?,reorder_level=?,expiry=?,status=? WHERE id=?""",
+                                  selling_price=?,stock=?,reorder_level=?,expiry=?,status=?,unit=?,barcode=?
+                                  WHERE id=?""",
                                  (sku, name, category, supplier, cost_price, selling_price,
-                                  stock, reorder_level, expiry or None, st, id))
+                                  stock, reorder_level, expiry or None, st, unit, barcode or None, id))
                 else:
                     conn.execute("""INSERT INTO products(sku,name,category,supplier,cost_price,selling_price,
-                                  stock,reorder_level,expiry,status) VALUES(?,?,?,?,?,?,?,?,?,?)""",
+                                  stock,reorder_level,expiry,status,unit,barcode)
+                                  VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
                                  (sku, name, category, supplier, cost_price, selling_price,
-                                  stock, reorder_level, expiry or None, st))
+                                  stock, reorder_level, expiry or None, st, unit, barcode or None))
             return self._ok(msg="Product saved")
         except sqlite3.IntegrityError:
             return self._err(f"A product with SKU '{sku}' already exists")
@@ -388,6 +491,7 @@ class StoreHubAPI:
         if err: return err
         try:
             db.execute("DELETE FROM products WHERE id=?", (id,))
+            self._audit('product.delete', 'product', id)
             return self._ok(msg="Product deleted")
         except Exception as e:
             return self._err(f"Could not delete product: {e}")
@@ -461,11 +565,78 @@ class StoreHubAPI:
             r['items'] = json.loads(r['items_json'])
         return self._ok(rows)
 
+    @staticmethod
+    def get_tax_components():
+        """Configured tax components, e.g. VAT / NHIL / GETFund.
+
+        Ghana layers several levies rather than charging one rate, so the
+        receipt must be able to show them separately. Falls back to a single
+        component built from the plain `taxRate` setting.
+        """
+        rows = db.query("SELECT value FROM settings WHERE key='taxComponents'")
+        if rows and rows[0]['value']:
+            try:
+                parts = json.loads(rows[0]['value'])
+                out = [{'name': str(p.get('name', 'Tax')), 'rate': float(p.get('rate', 0))}
+                       for p in parts if float(p.get('rate', 0)) > 0]
+                if out:
+                    return out
+            except (ValueError, TypeError):
+                pass
+        rate_rows = db.query("SELECT value FROM settings WHERE key='taxRate'")
+        rate = _to_number(rate_rows[0]['value'], 0) if rate_rows else 0
+        return [{'name': 'Tax', 'rate': rate}] if rate > 0 else []
+
+    def _tax_breakdown(self, tax_amt):
+        """Split a sale's tax into its configured components for the receipt."""
+        comps = self.get_tax_components()
+        total_rate = sum(c['rate'] for c in comps)
+        if not comps or total_rate <= 0 or not tax_amt:
+            return []
+        return [{'name': c['name'], 'rate': c['rate'],
+                 'amount': round(tax_amt * c['rate'] / total_rate, 2)} for c in comps]
+
+    def get_tax_config(self):
+        err = self._require_auth()
+        if err: return err
+        comps = self.get_tax_components()
+        return self._ok({'components': comps,
+                         'totalRate': round(sum(c['rate'] for c in comps), 4)})
+
+    def save_tax_components(self, components_json):
+        """Replace the tax component list (admin only)."""
+        err = self._require_perm('settings')
+        if err: return err
+        try:
+            parts = json.loads(components_json)
+            clean = []
+            for p in parts:
+                name = str(p.get('name', '')).strip()
+                rate = _to_number(p.get('rate'), 0)
+                if not name:
+                    continue
+                if rate < 0 or rate > 100:
+                    return self._err(f"'{name}' has an invalid rate")
+                clean.append({'name': name, 'rate': rate})
+            db.execute("INSERT OR REPLACE INTO settings(key,value) VALUES('taxComponents',?)",
+                       (json.dumps(clean),))
+            # Keep the flat rate in step so existing screens stay correct.
+            db.execute("INSERT OR REPLACE INTO settings(key,value) VALUES('taxRate',?)",
+                       (str(round(sum(c['rate'] for c in clean), 4)),))
+            self._audit('settings.tax_updated', 'settings', None,
+                        {'components': [c['name'] for c in clean],
+                         'total': round(sum(c['rate'] for c in clean), 4)})
+            return self._ok({'components': clean}, "Tax settings saved")
+        except Exception as e:
+            return self._err(f"Could not save tax settings: {e}")
+
     def complete_sale(self, items_json, discount, tax, payment, approval_pin="",
-                      customer_name="", customer_phone="", amount_paid=None):
+                      customer_name="", customer_phone="", amount_paid=None,
+                      tendered=None, split_json=""):
         """Record a sale. When `payment` is 'Credit' a customer name is required and
         `amount_paid` is any deposit taken now; the rest becomes an outstanding
-        balance. Credit sales still count as revenue immediately (accrual)."""
+        balance. Credit sales still count as revenue immediately (accrual).
+        `tendered` is cash handed over, used to compute change due."""
         err = self._require_perm('sales')
         if err: return err
         try:
@@ -491,7 +662,8 @@ class StoreHubAPI:
                     qty = int(i['qty'])
                     if qty <= 0:
                         raise ValueError("Quantities must be positive")
-                    row = conn.execute("SELECT stock, name, cost_price FROM products WHERE id=?", (i['productId'],)).fetchone()
+                    row = conn.execute("SELECT stock, name, cost_price, category FROM products WHERE id=?",
+                                       (i['productId'],)).fetchone()
                     if not row:
                         raise ValueError(f"Product '{i.get('name', '?')}' no longer exists")
                     if row['stock'] < qty:
@@ -499,6 +671,10 @@ class StoreHubAPI:
                     unit = float(i['unitPrice'])
                     if unit <= 0 or unit < row['cost_price']:
                         below_cost = True
+                    # Cost and category come from the database, never the client,
+                    # so margins cannot be falsified by a tampered request.
+                    i['costPrice'] = row['cost_price']
+                    i['category'] = row['category']
 
                 # A below-cost sale requires the admin-set approval PIN (if configured).
                 if below_cost:
@@ -525,27 +701,484 @@ class StoreHubAPI:
                 else:
                     paid, balance, status = total, 0.0, 'Completed'
 
+                # Cash handling: change due when more was tendered than owed.
+                tend = _to_number(tendered, 0) if tendered not in (None, '') else None
+                change = None
+                if tend is not None and tend > 0:
+                    due = paid if is_credit else total
+                    if tend + 0.001 < due:
+                        raise ValueError(f"Amount tendered is less than the {round(due, 2)} due")
+                    change = round(tend - due, 2)
+
                 cur = conn.execute(
                     """INSERT INTO sales(date,items_json,subtotal,discount,tax,discount_amt,tax_amt,total,payment,status,
-                                         customer_name,customer_phone,amount_paid,balance)
-                       VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                                         customer_name,customer_phone,amount_paid,balance,tendered,change_due,voided)
+                       VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0)""",
                     (now, json.dumps(items), subtotal, discount, tax, discount_amt, tax_amt, total, payment, status,
-                     customer_name or None, customer_phone or None, round(paid, 2), balance))
+                     customer_name or None, customer_phone or None, round(paid, 2), balance, tend, change))
                 sale_id = cur.lastrowid
 
                 for i in items:
                     conn.execute("UPDATE products SET stock = stock - ? WHERE id=?", (i['qty'], i['productId']))
                     conn.execute("INSERT INTO stock_movements(date,product_id,product_name,type,qty,reference) VALUES(?,?,?,?,?,?)",
                                  (now, i['productId'], i['name'], 'OUT', i['qty'], f'Sale #{sale_id}'))
+                    # Normalised line, so reports can aggregate in SQL.
+                    conn.execute(
+                        "INSERT INTO sale_items(sale_id,product_id,name,category,qty,unit_price,cost_price,date) "
+                        "VALUES(?,?,?,?,?,?,?,?)",
+                        (sale_id, i['productId'], i['name'], i.get('category'),
+                         i['qty'], i['unitPrice'], i['costPrice'], now))
                     self._update_product_status(i['productId'], conn)
 
+                if below_cost:
+                    self._audit('sale.below_cost_approved', 'sale', sale_id,
+                                {'total': round(total, 2), 'lines': len(items)}, conn)
+                if discount and discount > 0:
+                    self._audit('sale.discount', 'sale', sale_id,
+                                {'discount_pct': discount, 'amount': round(discount_amt, 2)}, conn)
+
+                # Split payment: record each leg. Must add up to what was paid.
+                if split_json:
+                    try:
+                        legs = json.loads(split_json)
+                    except (ValueError, TypeError):
+                        raise ValueError("Invalid split payment data")
+                    legs = [{'method': str(l.get('method', 'Cash')),
+                             'amount': _to_number(l.get('amount'), 0)} for l in legs]
+                    legs = [l for l in legs if l['amount'] > 0]
+                    if legs:
+                        expected = paid if is_credit else total
+                        got = round(sum(l['amount'] for l in legs), 2)
+                        if abs(got - round(expected, 2)) > 0.01:
+                            raise ValueError(
+                                f"Split payments total {got} but {round(expected, 2)} is due")
+                        for l in legs:
+                            conn.execute("INSERT INTO sale_payments(sale_id,method,amount) VALUES(?,?,?)",
+                                         (sale_id, l['method'], round(l['amount'], 2)))
+
                 sale = dict(conn.execute("SELECT * FROM sales WHERE id=?", (sale_id,)).fetchone())
+                sale['payments'] = [dict(r) for r in conn.execute(
+                    "SELECT method, amount FROM sale_payments WHERE sale_id=?", (sale_id,))]
             sale['items'] = items
+            sale['taxComponents'] = self._tax_breakdown(sale.get('tax_amt') or 0)
             return self._ok(sale, "Sale completed")
         except ValueError as e:
             return self._err(str(e))
         except Exception as e:
             return self._err(f"Sale failed: {e}")
+
+    def void_sale(self, sale_id, reason="", approval_pin=""):
+        """Reverse a whole sale: restock every line, clear any credit balance,
+        and mark it voided. Requires the approval PIN when one is configured.
+        The sale is kept (never deleted) so the audit trail stays intact."""
+        err = self._require_perm('sales')
+        if err: return err
+        reason = (reason or '').strip()
+        if not reason:
+            return self._err("A reason is required to void a sale")
+        try:
+            now = datetime.now().isoformat()
+            with db.transaction() as conn:
+                sale = conn.execute("SELECT * FROM sales WHERE id=?", (sale_id,)).fetchone()
+                if not sale:
+                    raise ValueError("Sale not found")
+                if sale['voided']:
+                    raise ValueError("That sale has already been voided")
+
+                pin_row = conn.execute("SELECT value FROM settings WHERE key='below_cost_pin'").fetchone()
+                pin_hash = pin_row['value'] if pin_row else None
+                if pin_hash and (not approval_pin or not db.verify_password(str(approval_pin), pin_hash)):
+                    raise ValueError("Voiding a sale requires the manager approval PIN.")
+
+                # Anything already returned was restocked once; don't double-count.
+                returned = {r['product_id']: r['q'] for r in conn.execute(
+                    "SELECT product_id, COALESCE(SUM(qty),0) AS q FROM returns "
+                    "WHERE sale_id=? AND resellable=1 GROUP BY product_id", (sale_id,))}
+
+                items = json.loads(sale['items_json'] or '[]')
+                for i in items:
+                    pid = i.get('productId')
+                    qty = float(i.get('qty', 0)) - float(returned.get(pid, 0))
+                    if qty <= 0:
+                        continue
+                    conn.execute("UPDATE products SET stock = stock + ? WHERE id=?", (qty, pid))
+                    conn.execute("INSERT INTO stock_movements(date,product_id,product_name,type,qty,reference) "
+                                 "VALUES(?,?,?,?,?,?)",
+                                 (now, pid, i.get('name'), 'IN', qty, f'Void Sale #{sale_id}'))
+                    self._update_product_status(pid, conn)
+
+                conn.execute("UPDATE sales SET voided=1, status='Voided', void_reason=?, "
+                             "balance=0 WHERE id=?", (reason, sale_id))
+                self._audit('sale.void', 'sale', sale_id,
+                            {'reason': reason, 'total': sale['total'],
+                             'was_credit': sale['payment'] == 'Credit'}, conn)
+            return self._ok({'id': sale_id}, "Sale voided and stock returned")
+        except ValueError as e:
+            return self._err(str(e))
+        except Exception as e:
+            return self._err(f"Could not void sale: {e}")
+
+    # ── Quotes / price estimates ────────────────────────────
+    def get_quotes(self, status="Open"):
+        """Quotes, newest first. status: 'Open', 'Converted', 'Cancelled' or ''."""
+        err = self._require_perm('sales')
+        if err: return err
+        sql, params = "SELECT * FROM quotes WHERE 1=1", []
+        if status:
+            sql += " AND status = ?"; params.append(status)
+        sql += " ORDER BY date DESC LIMIT 500"
+        rows = db.query(sql, tuple(params))
+        for r in rows:
+            try:
+                r['items'] = json.loads(r['items_json'] or '[]')
+            except (ValueError, TypeError):
+                r['items'] = []
+        open_total = db.query(
+            "SELECT COALESCE(SUM(total),0) AS v FROM quotes WHERE status='Open'")[0]['v']
+        return self._ok({'quotes': rows, 'openValue': round(open_total, 2)})
+
+    def save_quote(self, items_json, discount, tax, customer_name="",
+                   customer_phone="", notes="", quote_id=None):
+        """Create or update a price estimate.
+
+        Deliberately does NOT move stock or record revenue — a quote is only a
+        priced list until it is converted.
+        """
+        err = self._require_perm('sales')
+        if err: return err
+        try:
+            items = json.loads(items_json)
+            if not items:
+                return self._err("Add at least one item to the quote")
+            discount = float(discount or 0)
+            tax = float(tax or 0)
+            if discount < 0 or discount > 100 or tax < 0:
+                return self._err("Invalid discount or tax")
+            customer_name = (customer_name or '').strip()
+            if not customer_name:
+                return self._err("Customer name is required on a quote")
+
+            now = datetime.now().isoformat()
+            with db.transaction() as conn:
+                # Price from the catalogue where possible so a quote can't be
+                # built on stale or spoofed prices.
+                for i in items:
+                    row = conn.execute("SELECT name, unit FROM products WHERE id=?",
+                                       (i.get('productId'),)).fetchone()
+                    if row:
+                        i['name'] = row['name']
+                        i['unit'] = row['unit'] or 'each'
+                    if float(i.get('qty', 0)) <= 0:
+                        raise ValueError("Quantities must be greater than zero")
+
+                subtotal = sum(float(i['qty']) * float(i['unitPrice']) for i in items)
+                discount_amt = subtotal * discount / 100
+                tax_amt = (subtotal - discount_amt) * tax / 100
+                total = subtotal - discount_amt + tax_amt
+                who = (self._current_user or {}).get('name', '')
+
+                if quote_id:
+                    cur = conn.execute("SELECT status FROM quotes WHERE id=?", (quote_id,)).fetchone()
+                    if not cur:
+                        raise ValueError("Quote not found")
+                    if cur['status'] != 'Open':
+                        raise ValueError("Only an open quote can be edited")
+                    conn.execute(
+                        """UPDATE quotes SET customer_name=?,customer_phone=?,items_json=?,subtotal=?,
+                           discount=?,tax=?,discount_amt=?,tax_amt=?,total=?,notes=? WHERE id=?""",
+                        (customer_name, customer_phone or None, json.dumps(items), subtotal,
+                         discount, tax, discount_amt, tax_amt, total, notes or None, quote_id))
+                    qid = quote_id
+                else:
+                    c2 = conn.execute(
+                        """INSERT INTO quotes(date,customer_name,customer_phone,items_json,subtotal,
+                           discount,tax,discount_amt,tax_amt,total,notes,status,created_by)
+                           VALUES(?,?,?,?,?,?,?,?,?,?,?, 'Open', ?)""",
+                        (now, customer_name, customer_phone or None, json.dumps(items), subtotal,
+                         discount, tax, discount_amt, tax_amt, total, notes or None, who))
+                    qid = c2.lastrowid
+                self._audit('quote.saved' if not quote_id else 'quote.updated', 'quote', qid,
+                            {'customer': customer_name, 'total': round(total, 2)}, conn)
+                quote = dict(conn.execute("SELECT * FROM quotes WHERE id=?", (qid,)).fetchone())
+            quote['items'] = items
+            return self._ok(quote, f"Quote #{qid} saved")
+        except ValueError as e:
+            return self._err(str(e))
+        except Exception as e:
+            return self._err(f"Could not save quote: {e}")
+
+    def cancel_quote(self, quote_id):
+        err = self._require_perm('sales')
+        if err: return err
+        row = db.query("SELECT status FROM quotes WHERE id=?", (quote_id,))
+        if not row:
+            return self._err("Quote not found")
+        if row[0]['status'] == 'Converted':
+            return self._err("That quote has already become a sale")
+        db.execute("UPDATE quotes SET status='Cancelled' WHERE id=?", (quote_id,))
+        self._audit('quote.cancelled', 'quote', quote_id)
+        return self._ok(msg="Quote cancelled")
+
+    def convert_quote(self, quote_id, payment="Cash", approval_pin="",
+                      amount_paid=None, tendered=None):
+        """Turn an open quote into a real sale. Stock moves only now."""
+        err = self._require_perm('sales')
+        if err: return err
+        row = db.query("SELECT * FROM quotes WHERE id=?", (quote_id,))
+        if not row:
+            return self._err("Quote not found")
+        q = row[0]
+        if q['status'] != 'Open':
+            return self._err(f"That quote is already {q['status'].lower()}")
+
+        raw = self.complete_sale(q['items_json'], q['discount'], q['tax'], payment,
+                                 approval_pin, q['customer_name'] or '',
+                                 q['customer_phone'] or '', amount_paid, tendered)
+        res = json.loads(raw)
+        if not res.get('ok'):
+            return raw                      # surface the reason (e.g. no stock)
+        sale_id = res['data']['id']
+        db.execute("UPDATE quotes SET status='Converted', sale_id=? WHERE id=?", (sale_id, quote_id))
+        self._audit('quote.converted', 'quote', quote_id,
+                    {'sale_id': sale_id, 'total': q['total']})
+        res['msg'] = f"Quote #{quote_id} converted to sale #{sale_id}"
+        return json.dumps(res)
+
+    # ── Held (parked) sales ─────────────────────────────────
+    def get_held_sales(self):
+        err = self._require_perm('sales')
+        if err: return err
+        rows = db.query("SELECT * FROM held_sales ORDER BY date DESC")
+        for r in rows:
+            try:
+                r['items'] = json.loads(r['items_json'] or '[]')
+            except (ValueError, TypeError):
+                r['items'] = []
+        return self._ok(rows)
+
+    def hold_sale(self, items_json, discount=0, tax=0, label=""):
+        """Park the current cart so the till is free for the next customer."""
+        err = self._require_perm('sales')
+        if err: return err
+        try:
+            items = json.loads(items_json)
+            if not items:
+                return self._err("Cart is empty — nothing to hold")
+            cur = db.execute(
+                "INSERT INTO held_sales(date,label,items_json,discount,tax,held_by) VALUES(?,?,?,?,?,?)",
+                (datetime.now().isoformat(), (label or '').strip() or None, json.dumps(items),
+                 float(discount or 0), float(tax or 0), (self._current_user or {}).get('name', '')))
+            return self._ok({'id': cur}, "Sale held")
+        except Exception as e:
+            return self._err(f"Could not hold sale: {e}")
+
+    def resume_held_sale(self, held_id):
+        err = self._require_perm('sales')
+        if err: return err
+        rows = db.query("SELECT * FROM held_sales WHERE id=?", (held_id,))
+        if not rows:
+            return self._err("That held sale is no longer available")
+        r = rows[0]
+        db.execute("DELETE FROM held_sales WHERE id=?", (held_id,))
+        try:
+            r['items'] = json.loads(r['items_json'] or '[]')
+        except (ValueError, TypeError):
+            r['items'] = []
+        return self._ok(r, "Sale resumed")
+
+    def delete_held_sale(self, held_id):
+        err = self._require_perm('sales')
+        if err: return err
+        db.execute("DELETE FROM held_sales WHERE id=?", (held_id,))
+        return self._ok(msg="Held sale discarded")
+
+    # ── Recurring expenses ──────────────────────────────────
+    def get_recurring_expenses(self):
+        err = self._require_perm('expenses')
+        if err: return err
+        return self._ok(db.query("SELECT * FROM recurring_expenses ORDER BY category, description"))
+
+    def save_recurring_expense(self, id, category, description, amount, payment, day_of_month, active=1):
+        err = self._require_perm('expenses')
+        if err: return err
+        try:
+            amt = _to_number(amount, 0)
+            if amt <= 0:
+                return self._err("Amount must be greater than zero")
+            day = max(1, min(28, int(_to_number(day_of_month, 1))))   # 28 is safe in every month
+            if id:
+                db.execute("UPDATE recurring_expenses SET category=?,description=?,amount=?,payment=?,"
+                           "day_of_month=?,active=? WHERE id=?",
+                           (category, description, amt, payment, day, 1 if active else 0, id))
+            else:
+                db.execute("INSERT INTO recurring_expenses(category,description,amount,payment,day_of_month,active) "
+                           "VALUES(?,?,?,?,?,?)", (category, description, amt, payment, day, 1 if active else 0))
+            self._audit('expense.recurring_saved', 'recurring_expense', id,
+                        {'category': category, 'amount': amt})
+            return self._ok(msg="Recurring expense saved")
+        except Exception as e:
+            return self._err(f"Could not save: {e}")
+
+    def delete_recurring_expense(self, id):
+        err = self._require_perm('expenses')
+        if err: return err
+        db.execute("DELETE FROM recurring_expenses WHERE id=?", (id,))
+        return self._ok(msg="Recurring expense removed")
+
+    def post_due_recurring_expenses(self):
+        """Create expense entries for any active template due this month.
+
+        Idempotent: `last_posted` records the month already posted, so running
+        this repeatedly (e.g. on every launch) never double-charges.
+        """
+        err = self._require_auth()
+        if err: return err
+        today = datetime.now()
+        this_month = today.strftime('%Y-%m')
+        posted = []
+        try:
+            with db.transaction() as conn:
+                for r in conn.execute("SELECT * FROM recurring_expenses WHERE active=1").fetchall():
+                    if (r['last_posted'] or '') >= this_month:
+                        continue                       # already posted this month
+                    if today.day < (r['day_of_month'] or 1):
+                        continue                       # not due yet
+                    when = today.replace(day=min(r['day_of_month'] or 1, today.day)).isoformat()
+                    conn.execute("INSERT INTO expenses(date,category,description,amount,payment,created_by) "
+                                 "VALUES(?,?,?,?,?,?)",
+                                 (when, r['category'], f"{r['description']} (automatic)",
+                                  r['amount'], r['payment'], 'Recurring'))
+                    conn.execute("UPDATE recurring_expenses SET last_posted=? WHERE id=?",
+                                 (this_month, r['id']))
+                    posted.append({'category': r['category'], 'amount': r['amount']})
+            if posted:
+                self._audit('expense.recurring_posted', 'expenses', None,
+                            {'count': len(posted), 'month': this_month})
+            return self._ok({'posted': posted}, f"{len(posted)} recurring expense(s) posted")
+        except Exception as e:
+            return self._err(f"Could not post recurring expenses: {e}")
+
+    # ── Stock adjustments ───────────────────────────────────
+    ADJUSTMENT_REASONS = ['Count correction', 'Damage', 'Theft/Loss', 'Expiry',
+                          'Supplier shortage', 'Found stock', 'Other']
+
+    def get_stock_adjustments(self, date_from="", date_to=""):
+        err = self._require_perm('inventory')
+        if err: return err
+        sql, params = "SELECT * FROM stock_adjustments WHERE 1=1", []
+        if date_from:
+            sql += " AND date >= ?"; params.append(date_from)
+        if date_to:
+            sql += " AND date <= ?"; params.append(date_to + "T23:59:59")
+        sql += " ORDER BY date DESC LIMIT 500"
+        return self._ok(db.query(sql, tuple(params)))
+
+    def adjust_stock(self, product_id, new_qty, reason, note="", date=""):
+        """Set a product's stock to a counted figure, recording why.
+
+        This is the correct way to fix stock after a stocktake — using a fake
+        sale or purchase would corrupt revenue and COGS.
+        """
+        err = self._require_perm('inventory')
+        if err: return err
+        try:
+            reason = (reason or '').strip()
+            if reason not in self.ADJUSTMENT_REASONS:
+                return self._err("Choose a valid reason for the adjustment")
+            after = _to_number(new_qty, None)
+            if after is None or after < 0:
+                return self._err("Enter a valid new quantity (0 or more)")
+            when = self._resolve_backdate(date)
+            with db.transaction() as conn:
+                row = conn.execute("SELECT id, name, stock FROM products WHERE id=?", (product_id,)).fetchone()
+                if not row:
+                    raise ValueError("Product not found")
+                before = row['stock']
+                delta = round(after - before, 4)
+                if abs(delta) < 0.0001:
+                    raise ValueError("That is the same as the current stock — nothing to adjust")
+                conn.execute("UPDATE products SET stock=? WHERE id=?", (after, product_id))
+                conn.execute("INSERT INTO stock_adjustments(date,product_id,product_name,before_qty,after_qty,"
+                             "delta,reason,note,adjusted_by) VALUES(?,?,?,?,?,?,?,?,?)",
+                             (when, product_id, row['name'], before, after, delta, reason, note,
+                              (self._current_user or {}).get('name', '')))
+                conn.execute("INSERT INTO stock_movements(date,product_id,product_name,type,qty,reference) "
+                             "VALUES(?,?,?,?,?,?)",
+                             (when, product_id, row['name'], 'IN' if delta > 0 else 'OUT',
+                              abs(delta), f'Adjustment: {reason}'))
+                self._update_product_status(product_id, conn)
+                self._audit('stock.adjust', 'product', product_id,
+                            {'before': before, 'after': after, 'delta': delta,
+                             'reason': reason, 'note': note}, conn)
+            return self._ok({'before': before, 'after': after, 'delta': delta},
+                            f"Stock adjusted by {delta:+g}")
+        except ValueError as e:
+            return self._err(str(e))
+        except Exception as e:
+            return self._err(f"Could not adjust stock: {e}")
+
+    # ── Backup / restore ────────────────────────────────────
+    def backup_database(self, dest_path=""):
+        """Write a backup. With no path, opens a native Save dialog."""
+        err = self._require_perm('settings')
+        if err: return err
+        try:
+            if not dest_path:
+                import webview
+                stamp = datetime.now().strftime('%Y-%m-%d_%H%M')
+                win = webview.windows[0] if getattr(webview, 'windows', None) else None
+                chosen = win.create_file_dialog(
+                    webview.SAVE_DIALOG, save_filename=f'dwatrex-backup-{stamp}.db') if win else None
+                if not chosen:
+                    return self._err("Backup cancelled")
+                dest_path = chosen if isinstance(chosen, str) else chosen[0]
+            db.backup_to(dest_path)
+            self._audit('data.backup', 'database', None, {'path': dest_path})
+            return self._ok({'path': dest_path}, "Backup saved")
+        except Exception as e:
+            return self._err(f"Backup failed: {e}")
+
+    def restore_database(self, src_path=""):
+        """Replace the live database with a backup file (admin only)."""
+        err = self._require_perm('settings')
+        if err: return err
+        try:
+            if not src_path:
+                import webview
+                win = webview.windows[0] if getattr(webview, 'windows', None) else None
+                chosen = win.create_file_dialog(
+                    webview.OPEN_DIALOG, allow_multiple=False,
+                    file_types=('Dwatrex backup (*.db)', 'All files (*.*)')) if win else None
+                if not chosen:
+                    return self._err("Restore cancelled")
+                src_path = chosen[0] if isinstance(chosen, (list, tuple)) else chosen
+            safety = db.restore_from(src_path)
+            self._audit('data.restore', 'database', None, {'from': src_path, 'safety_copy': safety})
+            self._current_user = None      # sessions from the old database are void
+            return self._ok({'safetyCopy': safety},
+                            "Database restored. Please sign in again.")
+        except ValueError as e:
+            return self._err(str(e))
+        except Exception as e:
+            return self._err(f"Restore failed: {e}")
+
+    def get_backup_info(self):
+        """Where backups live and when the last one was taken."""
+        err = self._require_perm('settings')
+        if err: return err
+        import os as _os
+        folder = _os.path.join(_os.path.dirname(db.DB_PATH), 'backups')
+        latest, count = None, 0
+        if _os.path.isdir(folder):
+            files = [f for f in _os.listdir(folder) if f.endswith('.db')]
+            count = len(files)
+            if files:
+                newest = max(files)
+                latest = datetime.fromtimestamp(
+                    _os.path.getmtime(_os.path.join(folder, newest))).strftime('%d %b %Y, %H:%M')
+        size = _os.path.getsize(db.DB_PATH) if _os.path.exists(db.DB_PATH) else 0
+        return self._ok({'folder': folder, 'autoBackups': count, 'lastAuto': latest,
+                         'dbPath': db.DB_PATH, 'dbSizeKb': round(size / 1024)})
 
     # ── Credit sales / receivables ──────────────────────────
     def get_credit_sales(self, status="outstanding"):
@@ -567,6 +1200,73 @@ class StoreHubAPI:
                 "SELECT customer_name FROM sales WHERE payment='Credit' AND balance > 0.001")}),
         }
         return self._ok({'sales': rows, 'totals': totals})
+
+    def get_credit_by_customer(self):
+        """Receivables grouped by customer, with 30/60/90-day ageing.
+
+        Ageing runs from the sale date: the older a debt, the less likely it is
+        to be collected, so the buckets tell you who to chase first.
+        """
+        err = self._require_perm('credit')
+        if err: return err
+        now = datetime.now()
+        rows = db.query(
+            "SELECT id,date,customer_name,customer_phone,total,amount_paid,balance "
+            "FROM sales WHERE payment='Credit' AND balance > 0.001 AND COALESCE(voided,0)=0 "
+            "ORDER BY date")
+        people = {}
+        for r in rows:
+            key = (r['customer_name'] or 'Unknown').strip()
+            p = people.setdefault(key, {
+                'customer': key, 'phone': r['customer_phone'], 'balance': 0.0,
+                'sales': 0, 'oldestDays': 0,
+                'current': 0.0, 'd30': 0.0, 'd60': 0.0, 'd90': 0.0})
+            try:
+                age = (now - datetime.fromisoformat(r['date'])).days
+            except (ValueError, TypeError):
+                age = 0
+            bal = r['balance'] or 0
+            p['balance'] += bal
+            p['sales'] += 1
+            p['oldestDays'] = max(p['oldestDays'], age)
+            if age <= 30:   p['current'] += bal
+            elif age <= 60: p['d30'] += bal
+            elif age <= 90: p['d60'] += bal
+            else:           p['d90'] += bal
+            if not p['phone'] and r['customer_phone']:
+                p['phone'] = r['customer_phone']
+        out = sorted(people.values(), key=lambda x: -x['balance'])
+        for p in out:
+            for k in ('balance', 'current', 'd30', 'd60', 'd90'):
+                p[k] = round(p[k], 2)
+        totals = {
+            'outstanding': round(sum(p['balance'] for p in out), 2),
+            'current': round(sum(p['current'] for p in out), 2),
+            'd30': round(sum(p['d30'] for p in out), 2),
+            'd60': round(sum(p['d60'] for p in out), 2),
+            'd90': round(sum(p['d90'] for p in out), 2),
+            'customers': len(out),
+        }
+        return self._ok({'customers': out, 'totals': totals})
+
+    def get_customer_credit_detail(self, customer_name):
+        """Every outstanding sale for one customer, plus their payment history."""
+        err = self._require_perm('credit')
+        if err: return err
+        sales = db.query(
+            "SELECT id,date,total,amount_paid,balance,status FROM sales "
+            "WHERE payment='Credit' AND customer_name=? AND COALESCE(voided,0)=0 ORDER BY date DESC",
+            (customer_name,))
+        ids = [s['id'] for s in sales]
+        payments = []
+        if ids:
+            marks = ','.join('?' * len(ids))
+            payments = db.query(
+                f"SELECT * FROM credit_payments WHERE sale_id IN ({marks}) ORDER BY date DESC",
+                tuple(ids))
+        owed = round(sum(s['balance'] or 0 for s in sales), 2)
+        return self._ok({'customer': customer_name, 'sales': sales,
+                         'payments': payments, 'balance': owed})
 
     def get_credit_payments(self, sale_id):
         err = self._require_perm('credit')
@@ -603,6 +1303,9 @@ class StoreHubAPI:
                              (new_paid, new_balance, status, sale_id))
                 conn.execute("INSERT INTO credit_payments(sale_id,date,amount,method,note,taken_by) VALUES(?,?,?,?,?,?)",
                              (sale_id, when, round(amt, 2), method, note, taken_by))
+                self._audit('credit.payment', 'sale', sale_id,
+                            {'amount': round(amt, 2), 'balance': new_balance,
+                             'method': method, 'settled': new_balance <= 0.001}, conn)
             settled = new_balance <= 0.001
             return self._ok({'balance': new_balance, 'settled': settled},
                             "Payment recorded — account settled" if settled else "Payment recorded")
@@ -642,10 +1345,25 @@ class StoreHubAPI:
                     (now, supplier, json.dumps(items), total_cost, 'Received'))
                 po_id = cur.lastrowid
                 for i in items:
-                    conn.execute("UPDATE products SET stock = stock + ? WHERE id=?", (i['qty'], i['productId']))
+                    pid, qty = i['productId'], float(i['qty'])
+                    unit_cost = _to_number(i.get('unitCost'), 0)
+                    # Weighted-average costing: blend the new landed cost into the
+                    # existing stock so COGS follows supplier price changes.
+                    row = conn.execute("SELECT stock, cost_price FROM products WHERE id=?", (pid,)).fetchone()
+                    if row and unit_cost > 0:
+                        old_stock = max(0.0, float(row['stock'] or 0))
+                        old_cost = float(row['cost_price'] or 0)
+                        denom = old_stock + qty
+                        new_cost = ((old_stock * old_cost) + (qty * unit_cost)) / denom if denom > 0 else unit_cost
+                        conn.execute("UPDATE products SET cost_price=? WHERE id=?", (round(new_cost, 4), pid))
+                        if abs(new_cost - old_cost) > 0.005:
+                            self._audit('product.cost_updated', 'product', pid,
+                                        {'from': round(old_cost, 4), 'to': round(new_cost, 4),
+                                         'reason': f'PO-{po_id}'}, conn)
+                    conn.execute("UPDATE products SET stock = stock + ? WHERE id=?", (qty, pid))
                     conn.execute("INSERT INTO stock_movements(date,product_id,product_name,type,qty,reference) VALUES(?,?,?,?,?,?)",
-                                 (now, i['productId'], i['name'], 'IN', i['qty'], f'PO-{po_id}'))
-                    self._update_product_status(i['productId'], conn)
+                                 (now, pid, i['name'], 'IN', qty, f'PO-{po_id}'))
+                    self._update_product_status(pid, conn)
             return self._ok(msg="Purchase recorded")
         except ValueError as e:
             return self._err(str(e))

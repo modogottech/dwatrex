@@ -181,11 +181,26 @@ async function handleLogout() {
 // 'profits' is a pseudo-permission (not a page) controlling visibility of
 // profit/margin figures. Only admin has it.
 const ROLE_PERMS = {
-  admin:['dashboard','products','categories','suppliers','sales','purchases','inventory','returns','credit','reports','insights','expenses','users','settings','profits'],
-  manager:['dashboard','products','categories','suppliers','sales','purchases','inventory','returns','credit','reports'],
-  cashier:['dashboard','sales','returns','credit'],
+  admin:['dashboard','products','categories','suppliers','sales','purchases','inventory','returns','quotes','credit','audit','reports','insights','expenses','users','settings','profits'],
+  manager:['dashboard','products','categories','suppliers','sales','purchases','inventory','returns','quotes','credit','reports'],
+  cashier:['dashboard','sales','returns','quotes','credit'],
   inventory:['dashboard','products','categories','suppliers','purchases','inventory'],
 };
+// Show a fade at the foot of the menu when there is more to scroll to, so a
+// clipped list never looks like the whole list.
+function updateNavScrollHint() {
+  const nav = document.querySelector('.sidebar-nav');
+  const wrap = document.querySelector('.sidebar-nav-wrap');
+  if (!nav || !wrap) return;
+  const more = nav.scrollHeight - nav.clientHeight - nav.scrollTop > 4;
+  wrap.classList.toggle('can-scroll', more);
+}
+window.addEventListener('resize', updateNavScrollHint);
+document.addEventListener('DOMContentLoaded', () => {
+  document.querySelector('.sidebar-nav')?.addEventListener('scroll', updateNavScrollHint);
+  updateNavScrollHint();
+});
+
 function applyRolePermissions() {
   const perms = ROLE_PERMS[currentRole]||[];
   document.querySelectorAll('.nav-item[data-page]').forEach(el => {
@@ -220,7 +235,7 @@ const PAGE_TITLES = {
   dashboard:'Operations Dashboard', products:'Product Catalog', categories:'Categories',
   suppliers:'Supply Chain', sales:'POS Command', purchases:'Purchase Orders',
   inventory:'Inventory Intelligence', returns:'Returns Management',
-  credit:'Credit & Receivables',
+  quotes:'Quotes & Estimates', credit:'Credit & Receivables', audit:'Activity Log',
   reports:'Capital Analytics', insights:'Intelligence Center',
   expenses:'Expenses', users:'User Management', settings:'System Settings'
 };
@@ -229,7 +244,7 @@ const PAGE_TITLES = {
 const PAGE_TAB_MAP = {
   dashboard:'dashboard', products:'inventory', categories:'inventory',
   suppliers:'inventory', sales:'sales', purchases:'inventory',
-  inventory:'inventory', returns:'sales', credit:'sales', reports:'reports',
+  inventory:'inventory', returns:'sales', quotes:'sales', credit:'sales', audit:'dashboard', reports:'reports',
   insights:'reports', expenses:'reports', users:'dashboard', settings:'dashboard'
 };
 
@@ -339,16 +354,19 @@ async function refreshPage(page) {
     case 'products': await renderProducts(); break;
     case 'categories': await renderCategories(); break;
     case 'suppliers': await renderSuppliers(); break;
-    case 'sales': await renderPOSProducts(); renderCart(); await renderSalesHistory(); break;
+    case 'sales': await renderPOSProducts(); renderCart(); await renderSalesHistory();
+                  initPosShortcuts(); refreshHeldCount(); break;
     case 'purchases': await renderPurchases(); break;
     case 'inventory': await renderInventory(); break;
     case 'returns': await renderReturns(); break;
+    case 'quotes': await renderQuotes(); break;
     case 'credit': await renderCredit(); break;
+    case 'audit': await renderAudit(); break;
     case 'reports': await generateReport(); break;
     case 'insights': await renderInsights(); break;
-    case 'expenses': await renderExpenses(); break;
+    case 'expenses': await renderExpenses(); await api('post_due_recurring_expenses'); break;
     case 'users': await renderUsers(); break;
-    case 'settings': await loadSettings(); break;
+    case 'settings': await loadSettings(); loadBackupInfo(); loadTaxComponents(); break;
   }
 }
 
@@ -460,24 +478,48 @@ function renderCategorySalesChart(sales) {
 }
 
 // ═══════ PRODUCTS ═════════════════════════════════════════
-async function renderProducts() {
+// Real pagination replaces the old "first 100 only" cap, which silently hid
+// products past #100 unless you happened to search for them.
+let productPage = 0;
+const PRODUCT_PAGE_SIZE = 50;
+
+function gotoProductPage(p) { productPage = Math.max(0, p); renderProducts(true); }
+
+async function renderProducts(keepPage) {
+  if (!keepPage) productPage = 0;          // any filter change returns to page 1
   const s = document.getElementById('productSearch')?.value||'';
   const cat = document.getElementById('productCategoryFilter')?.value||'';
   const st = document.getElementById('productStatusFilter')?.value||'';
-  const res = await api('get_products', s, cat, st);
+  const res = await api('get_products', s, cat, st,
+                        PRODUCT_PAGE_SIZE, productPage * PRODUCT_PAGE_SIZE);
   if(!res.ok) return;
-  cachedProducts = res.data;
-  const CAP = 100;
-  const shown = res.data.slice(0, CAP);
-  let rows = shown.map(p=>`
-    <tr><td>${esc(p.sku)}</td><td>${esc(p.name)}</td><td>${esc(p.category)}</td><td>${money(p.cost_price)}</td><td>${money(p.selling_price)}</td>
+  const list = res.data.products || [];
+  const total = res.data.total || 0;
+  cachedProducts = list;
+  const rows = list.map(p=>`
+    <tr><td>${esc(p.sku)}</td><td>${esc(p.name)}${p.unit&&p.unit!=='each'?`<span class="per-unit"> /${esc(p.unit)}</span>`:''}</td><td>${esc(p.category)}</td><td>${money(p.cost_price)}</td><td>${money(p.selling_price)}</td>
     <td>${p.stock}</td><td>${p.reorder_level}</td>
     <td><span class="badge ${p.status==='In Stock'?'badge-success':p.status==='Low Stock'?'badge-warning':'badge-danger'}">${esc(p.status)}</span></td>
     <td class="actions"><button class="btn btn-sm btn-outline" aria-label="Edit product" onclick="openProductModal(${p.id})"><span class="material-symbols-outlined" style="font-size:14px">edit</span></button>
+    <button class="btn btn-sm btn-outline" aria-label="Adjust stock" title="Adjust stock" onclick="openAdjustModal(${p.id})"><span class="material-symbols-outlined" style="font-size:14px">tune</span></button>
     <button class="btn btn-sm btn-danger" aria-label="Delete product" onclick="deleteProduct(${p.id})"><span class="material-symbols-outlined" style="font-size:14px">delete</span></button></td></tr>
   `).join('');
-  if (res.data.length > CAP) rows += `<tr><td colspan="9" style="text-align:center;color:var(--outline);padding:0.85rem">Showing first ${CAP} of ${res.data.length}. Use search or filters to narrow results.</td></tr>`;
   document.querySelector('#productsTable tbody').innerHTML = rows || emptyRow(9,'inventory_2','No products found');
+  renderProductPager(total);
+}
+
+function renderProductPager(total) {
+  const pages = Math.max(1, Math.ceil(total / PRODUCT_PAGE_SIZE));
+  const el = document.getElementById('productPager');
+  if (!el) return;
+  if (total <= PRODUCT_PAGE_SIZE) { el.innerHTML = ''; return; }
+  const from = productPage * PRODUCT_PAGE_SIZE + 1;
+  const to = Math.min(total, (productPage + 1) * PRODUCT_PAGE_SIZE);
+  el.innerHTML = `
+    <span class="pager-info">Showing ${from}–${to} of ${total}</span>
+    <button class="btn btn-sm btn-outline" ${productPage===0?'disabled':''} onclick="gotoProductPage(${productPage-1})">Previous</button>
+    <span class="pager-info">Page ${productPage+1} of ${pages}</span>
+    <button class="btn btn-sm btn-outline" ${productPage>=pages-1?'disabled':''} onclick="gotoProductPage(${productPage+1})">Next</button>`;
 }
 
 async function openProductModal(id) {
@@ -493,13 +535,22 @@ async function openProductModal(id) {
       <div class="form-group"><label>Product Name *</label><input id="pName" value="${p?esc(p.name):''}" required></div></div>
       <div class="form-row"><div class="form-group"><label>Category *</label><select id="pCategory" required><option value="">Select</option>${catOpts}</select></div>
       <div class="form-group"><label>Supplier</label><select id="pSupplier"><option value="">Select</option>${supOpts}</select></div></div>
-      <div class="form-row"><div class="form-group"><label>Cost Price *</label><input type="number" step="0.01" id="pCost" value="${p?p.cost_price:''}" required min="0"></div>
-      <div class="form-group"><label>Selling Price *</label><input type="number" step="0.01" id="pPrice" value="${p?p.selling_price:''}" required min="0"></div></div>
-      <div class="form-row"><div class="form-group"><label>Stock Qty *</label><input type="number" id="pStock" value="${p?p.stock:'0'}" required min="0"></div>
+      <div class="form-row"><div class="form-group"><label>Cost Price *</label><input type="number" step="0.01" id="pCost" value="${p?p.cost_price:''}" required min="0" oninput="updateMarginPreview()"></div>
+      <div class="form-group"><label>Selling Price *</label><input type="number" step="0.01" id="pPrice" value="${p?p.selling_price:''}" required min="0" oninput="updateMarginPreview()"></div></div>
+      <div class="form-row"><div class="form-group"><label>Stock Qty *</label><input type="number" step="0.01" id="pStock" value="${p?p.stock:'0'}" required min="0"></div>
       <div class="form-group"><label>Reorder Level</label><input type="number" id="pReorder" value="${p?p.reorder_level:'10'}" min="0"></div></div>
+      <div class="form-row">
+        <div class="form-group"><label>Sold By (unit)</label>
+          <select id="pUnit">${UNIT_LIST.map(u=>`<option value="${u}" ${((p&&p.unit)||'each')===u?'selected':''}>${u}</option>`).join('')}</select>
+          <p style="font-size:0.7rem;color:var(--on-surface-variant);margin-top:0.25rem">Cost and price must both be per this unit.</p></div>
+        <div class="form-group"><label>Barcode</label>
+          <input type="text" id="pBarcode" value="${p&&p.barcode?esc(p.barcode):''}" placeholder="Scan or type" autocomplete="off"></div>
+      </div>
       <div class="form-group"><label>Expiry Date</label><input type="date" id="pExpiry" value="${p&&p.expiry?p.expiry:''}"></div>
+      <div id="pMargin" style="font-size:0.78rem;margin-bottom:0.75rem"></div>
       <button type="submit" class="btn btn-primary btn-block">${p?'Update':'Add'} Product</button>
     </form>`);
+  updateMarginPreview();
 }
 
 async function saveProduct(e, id) {
@@ -509,9 +560,27 @@ async function saveProduct(e, id) {
     document.getElementById('pCategory').value, document.getElementById('pSupplier').value,
     document.getElementById('pCost').value, document.getElementById('pPrice').value,
     document.getElementById('pStock').value, document.getElementById('pReorder').value||'10',
-    document.getElementById('pExpiry').value);
+    document.getElementById('pExpiry').value,
+    document.getElementById('pUnit')?.value||'each',
+    document.getElementById('pBarcode')?.value||'');
   if (!res.ok) { showToast(res.msg, 'error'); return; }
   closeModal(); showToast('Product saved'); renderProducts();
+}
+
+// Live margin preview — catches a blank or wrong price at entry, which is what
+// produced the "why is my profit negative" surprise.
+function updateMarginPreview() {
+  const c = parseFloat(document.getElementById('pCost')?.value||0) || 0;
+  const s = parseFloat(document.getElementById('pPrice')?.value||0) || 0;
+  const el = document.getElementById('pMargin');
+  if (!el) return;
+  if (!s) { el.innerHTML = '<span style="color:#ff6b6b">No selling price — this item would sell for nothing.</span>'; return; }
+  if (!c) { el.innerHTML = '<span style="color:var(--outline)">No cost price — margin can\'t be calculated.</span>'; return; }
+  const m = ((s-c)/s)*100;
+  const col = m < 0 ? '#ff6b6b' : m < 10 ? '#ffb77d' : '#34d399';
+  el.innerHTML = `<span style="color:${col};font-weight:700">Margin: ${m.toFixed(1)}% `
+               + `(${money(s-c)} per unit)</span>`
+               + (m < 0 ? ' — you would lose money on every sale' : '');
 }
 
 async function deleteProduct(id) {
@@ -591,24 +660,46 @@ async function deleteSupplier(id) {
 }
 
 // ═══════ SALES / POS ═════════════════════════════════════
+// A dense searchable list, not a card grid: with ~200 SKUs whose names differ
+// by a single number (XBZ 6W / 10W / 15W), aligned columns are far easier to
+// tell apart than tiles, and roughly twice as many fit on screen.
 async function renderPOSProducts() {
   const s=document.getElementById('posSearch')?.value||'';
   const cat=document.getElementById('posCategoryFilter')?.value||'';
   const res=await api('get_products',s,cat,'');
-  const prods=(res.data||[]).filter(p=>p.stock>0);
+  // Out-of-stock items stay visible (greyed out) so the cashier can see the
+  // product exists and tell the customer, rather than it silently vanishing.
+  const prods=(res.data||[]).slice().sort((a,b)=>(b.stock>0)-(a.stock>0)||a.name.localeCompare(b.name));
   posProducts = prods;  // cache for safe lookup by id (avoids interpolating names into onclick)
-  document.getElementById('posProductGrid').innerHTML = prods.map(p=>`
-    <div class="pos-product-card" onclick="addToCart(${p.id})">
-      <div class="product-name">${esc(p.name)}</div><div class="product-price">${money(p.selling_price)}</div>
-      <div class="product-stock">Stock: ${p.stock}</div></div>`).join('')||'<p style="padding:2rem;color:var(--outline);text-align:center">No products found</p>';
+  const grid = document.getElementById('posProductGrid');
+  grid.innerHTML = prods.map(p=>{
+    const out = !(p.stock > 0);
+    const unit = p.unit && p.unit !== 'each' ? `<span class="per-unit">/${esc(p.unit)}</span>` : '';
+    return `<div class="pos-row${out?' out-of-stock':''}" ${out?'aria-disabled="true"':`onclick="addToCart(${p.id})" tabindex="0" onkeydown="if(event.key==='Enter'){addToCart(${p.id})}"`}>
+      <div class="pos-row-main">
+        <span class="pos-row-name">${esc(p.name)}</span>
+        <span class="pos-row-sku">${esc(p.sku||'')}</span>
+      </div>
+      <span class="pos-row-stock">${out?'Out of stock':`${p.stock}${p.unit&&p.unit!=='each'?' '+esc(p.unit):''}`}</span>
+      <span class="pos-row-price">${money(p.selling_price)}${unit}</span>
+    </div>`;
+  }).join('') || '<p style="padding:2rem;color:var(--outline);text-align:center">No products found</p>';
+  const n = document.getElementById('posCount');
+  if (n) {
+    const sellable = prods.filter(p=>p.stock>0).length;
+    n.textContent = prods.length
+      ? `${prods.length} product${prods.length===1?'':'s'} · ${sellable} in stock`
+      : '';
+  }
 }
 
 function addToCart(id) {
   const p = posProducts.find(x=>x.id===id);
   if(!p){ showToast('Product unavailable','error'); return; }
+  if(!(p.stock > 0)){ showToast(`${p.name} is out of stock`,'error'); return; }
   const ex=cart.find(c=>c.productId===id);
   if(ex){ if(ex.qty>=p.stock){showToast('Not enough stock','error');return;} ex.qty++; }
-  else cart.push({productId:id,name:p.name,unitPrice:p.selling_price,originalPrice:p.selling_price,costPrice:p.cost_price,qty:1,maxStock:p.stock});
+  else cart.push({productId:id,name:p.name,unitPrice:p.selling_price,originalPrice:p.selling_price,costPrice:p.cost_price,qty:1,unit:p.unit||'each',maxStock:p.stock});
   renderCart();
 }
 function renderCart() {
@@ -622,7 +713,7 @@ function renderCart() {
     const warnTitle = zeroPrice ? 'This item is priced at 0 — no revenue'
                     : belowCost ? `Below cost (${money(it.costPrice)}) — this line makes a loss` : 'Edit price';
     return `<div class="cart-item"><span class="item-name">${esc(it.name)}</span>
-    <input type="number" class="item-qty" value="${it.qty}" min="1" max="${it.maxStock}" onchange="updateCartQty(${i},this.value)">
+    <input type="number" class="item-qty" value="${it.qty}" min="0.01" step="${WHOLE_UNITS.includes(it.unit||'each')?1:0.01}" max="${it.maxStock}" onchange="updateCartQty(${i},this.value)" title="${esc(it.unit||'each')}">${(it.unit&&it.unit!=='each')?`<span class="item-unit">${esc(it.unit)}</span>`:''}
     <input type="number" step="0.01" class="item-price${warn?' price-warn':''}" value="${it.unitPrice.toFixed(2)}" min="0" onchange="updateCartPrice(${i},this.value)" title="${warnTitle}">
     ${priceChanged ? `<span class="item-original-price">${money(it.originalPrice)}</span>` : ''}
     <span class="item-total">${money(it.qty*it.unitPrice)}</span>
@@ -635,7 +726,12 @@ function renderCart() {
   if (pinRow) pinRow.classList.toggle('hidden', !(hasBelowCost && belowCostPinSet));
   updateCartTotals();
 }
-function updateCartQty(i,v){ const q=parseInt(v); if(q>0&&q<=cart[i].maxStock) cart[i].qty=q; renderCart(); }
+function updateCartQty(i,v){
+  const whole = WHOLE_UNITS.includes(cart[i].unit||'each');
+  let q = whole ? parseInt(v) : parseFloat(v);
+  if (!isNaN(q) && q>0 && q<=cart[i].maxStock) cart[i].qty = whole ? q : Math.round(q*100)/100;
+  renderCart();
+}
 function updateCartPrice(i,v){ const p=parseFloat(v); if(p>=0) { cart[i].unitPrice=p; renderCart(); } }
 function removeFromCart(i){ cart.splice(i,1); renderCart(); }
 function clearCart(){ cart=[]; renderCart(); }
@@ -646,6 +742,8 @@ function updateCartTotals() {
   const da=sub*disc/100; const ta=(sub-da)*tax/100;
   document.getElementById('cartSubtotal').textContent=money(sub);
   document.getElementById('cartTotal').textContent=money(sub-da+ta);
+  renderQuickTender();
+  updateChangeDue();
 }
 
 async function completeSale() {
@@ -683,13 +781,17 @@ async function completeSale() {
       return;
     }
   }
+  const tendered = parseFloat(document.getElementById('cashTendered')?.value||0) || 0;
   const items=cart.map(c=>({productId:c.productId,name:c.name,qty:c.qty,unitPrice:c.unitPrice,costPrice:c.costPrice}));
-  const res=await api('complete_sale',JSON.stringify(items),disc,tax,payment,approvalPin,custName,custPhone,deposit);
+  const res=await api('complete_sale',JSON.stringify(items),disc,tax,payment,approvalPin,custName,custPhone,deposit,tendered,splitLegs?JSON.stringify(splitLegs):'');
   if(!res.ok){ showToast(res.msg,'error'); return; }
   const pinEl = document.getElementById('belowCostPinInput'); if (pinEl) pinEl.value = '';
   showReceipt(res.data);
+  // Change due is the number the cashier needs after the drawer opens — keep it
+  // on screen rather than only on the receipt.
+  if (res.data.change_due > 0) showToast(`Change due: ${money(res.data.change_due)}`);
   cart=[]; renderCart(); renderPOSProducts(); renderSalesHistory();
-  resetCreditFields();
+  resetCreditFields(); resetTenderFields(); splitLegs=null;
   const bal = res.data.balance || 0;
   showToast(bal > 0 ? `Sale #${res.data.id} on credit — ${money(bal)} owed` : 'Sale completed! #'+res.data.id);
 }
@@ -714,10 +816,15 @@ function showReceipt(sale) {
     <div class="receipt-divider"></div>
     <div class="receipt-line"><span>Subtotal</span><span>${money(sale.subtotal)}</span></div>
     ${sale.discount>0?`<div class="receipt-line"><span>Discount (${sale.discount}%)</span><span>-${money(sale.discount_amt)}</span></div>`:''}
-    <div class="receipt-line"><span>Tax (${sale.tax}%)</span><span>${money(sale.tax_amt)}</span></div>
+    ${(sale.taxComponents&&sale.taxComponents.length>1)
+      ? sale.taxComponents.map(t=>`<div class="receipt-line"><span>${esc(t.name)} (${t.rate}%)</span><span>${money(t.amount)}</span></div>`).join('')
+      : `<div class="receipt-line"><span>Tax (${sale.tax}%)</span><span>${money(sale.tax_amt)}</span></div>`}
     <div class="receipt-divider"></div>
     <div class="receipt-line receipt-total"><span>TOTAL</span><span>${money(sale.total)}</span></div>
     <div class="receipt-line"><span>Payment</span><span>${esc(sale.payment)}</span></div>
+    ${(sale.payments&&sale.payments.length>1)?sale.payments.map(p=>`<div class="receipt-line"><span>&nbsp;&nbsp;${esc(p.method)}</span><span>${money(p.amount)}</span></div>`).join(''):''}
+    ${sale.tendered?`<div class="receipt-line"><span>Tendered</span><span>${money(sale.tendered)}</span></div>`:''}
+    ${sale.change_due?`<div class="receipt-line"><span>Change</span><span>${money(sale.change_due)}</span></div>`:''}
     ${sale.customer_name?`<div class="receipt-line"><span>Customer</span><span>${esc(sale.customer_name)}${sale.customer_phone?' · '+esc(sale.customer_phone):''}</span></div>`:''}
     ${(sale.balance||0)>0?`<div class="receipt-divider"></div>
       <div class="receipt-line"><span>Paid</span><span>${money(sale.amount_paid||0)}</span></div>
@@ -726,12 +833,586 @@ function showReceipt(sale) {
   document.getElementById('receiptModal').classList.remove('hidden');
 }
 
+const UNIT_LIST = ['each','yard','metre','foot','kg','gram','litre','box','roll','pack'];
+const WHOLE_UNITS = ['each','box','pack'];
+
+// ═══════ QUOTES / PRICE ESTIMATES ════════════════════════
+let editingQuoteId = null;
+
+function openQuoteModal() {
+  if (!cart.length) { showToast('Add items to the cart first','error'); return; }
+  const total = cartDue();
+  openModal(editingQuoteId ? `Update Quote #${editingQuoteId}` : 'Save as Quote', `
+    <form onsubmit="saveQuote(event)">
+      <p style="font-size:0.8rem;color:var(--on-surface-variant);margin-bottom:1rem">
+        A quote is a price estimate only — <strong>no stock is used and nothing is recorded as a sale</strong>
+        until you convert it.
+      </p>
+      <div class="form-row">
+        <div class="form-group"><label>Customer Name *</label>
+          <input type="text" id="qCustomer" placeholder="Who is this quote for?" required></div>
+        <div class="form-group"><label>Phone</label>
+          <input type="text" id="qPhone" placeholder="e.g. 024 000 0000"></div>
+      </div>
+      <div class="form-group"><label>Notes</label>
+        <input type="text" id="qNotes" placeholder="e.g. wiring for 3-bedroom house"></div>
+      <p style="font-size:0.85rem;margin:0.75rem 0"><strong>${cart.length}</strong> item(s) ·
+        Total <strong>${money(total)}</strong></p>
+      <button type="submit" class="btn btn-primary btn-block">Save Quote</button>
+    </form>`);
+}
+
+async function saveQuote(e) {
+  e.preventDefault();
+  const items = cart.map(c=>({productId:c.productId,name:c.name,qty:c.qty,
+                              unitPrice:c.unitPrice,costPrice:c.costPrice,unit:c.unit||'each'}));
+  const disc = parseFloat(document.getElementById('cartDiscount')?.value||0);
+  const tax  = parseFloat(document.getElementById('cartTax')?.value||0);
+  const res = await api('save_quote', JSON.stringify(items), disc, tax,
+                        document.getElementById('qCustomer').value,
+                        document.getElementById('qPhone').value,
+                        document.getElementById('qNotes').value,
+                        editingQuoteId);
+  if (!res.ok) { showToast(res.msg,'error'); return; }
+  closeModal(); showToast(res.msg);
+  editingQuoteId = null;
+  cart=[]; renderCart(); renderPOSProducts();
+}
+
+async function renderQuotes() {
+  const status = document.getElementById('quoteStatusFilter')?.value ?? 'Open';
+  const res = await api('get_quotes', status);
+  if (!res.ok) { showToast(res.msg,'error'); return; }
+  const { quotes, openValue } = res.data;
+  document.getElementById('quotesOpenValue').textContent = money(openValue);
+  document.getElementById('quotesOpenCount').textContent =
+    quotes.filter(q=>q.status==='Open').length;
+  document.querySelector('#quotesTable tbody').innerHTML = quotes.map(q=>{
+    const badge = q.status==='Open' ? 'badge-warning'
+                : q.status==='Converted' ? 'badge-success' : 'badge-danger';
+    return `<tr>
+      <td>#${q.id}</td>
+      <td>${fmtDate(q.date)}</td>
+      <td>${esc(q.customer_name||'—')}${q.notes?`<div style="font-size:0.7rem;color:var(--on-surface-variant)">${esc(q.notes)}</div>`:''}</td>
+      <td>${q.customer_phone?`<a href="tel:${esc(q.customer_phone)}">${esc(q.customer_phone)}</a>`:'—'}</td>
+      <td>${(q.items||[]).length}</td>
+      <td><strong>${money(q.total)}</strong></td>
+      <td><span class="badge ${badge}">${esc(q.status)}</span>${q.sale_id?` <span style="font-size:0.7rem">→ sale #${q.sale_id}</span>`:''}</td>
+      <td class="actions">
+        <button class="btn btn-sm btn-outline" aria-label="Print quote ${q.id}" onclick="printQuote(${q.id})"><span class="material-symbols-outlined" style="font-size:14px">print</span></button>
+        ${q.status==='Open'?`
+          <button class="btn btn-sm btn-primary" aria-label="Convert quote ${q.id}" onclick="convertQuote(${q.id})"><span class="material-symbols-outlined" style="font-size:14px">point_of_sale</span> Convert</button>
+          <button class="btn btn-sm btn-outline" aria-label="Cancel quote ${q.id}" onclick="cancelQuote(${q.id})"><span class="material-symbols-outlined" style="font-size:14px">close</span></button>`:''}
+      </td></tr>`;
+  }).join('') || emptyRow(8,'request_quote','No quotes here yet');
+  window._quotes = quotes;
+}
+
+async function cancelQuote(id) {
+  if (!confirm(`Cancel quote #${id}?`)) return;
+  const res = await api('cancel_quote', id);
+  if (!res.ok) { showToast(res.msg,'error'); return; }
+  showToast(res.msg); renderQuotes();
+}
+
+async function convertQuote(id) {
+  const q = (window._quotes||[]).find(x=>x.id===id);
+  openModal(`Convert Quote #${id} to a Sale`, `
+    <form onsubmit="doConvertQuote(event, ${id})">
+      <p style="font-size:0.85rem;margin-bottom:1rem">
+        ${q?`<strong>${esc(q.customer_name||'')}</strong> · ${money(q.total)}<br>`:''}
+        This will record the sale and <strong>deduct the items from stock now</strong>.
+      </p>
+      <div class="form-group"><label>Payment Method</label>
+        <select id="cvPayment"><option>Cash</option><option>Mobile Money</option><option>Card</option><option>Bank Transfer</option><option>Credit</option></select></div>
+      <div class="form-group"><label>Manager PIN</label>
+        <input type="password" id="cvPin" placeholder="Only if selling below cost" autocomplete="off"></div>
+      <button type="submit" class="btn btn-primary btn-block">Convert to Sale</button>
+    </form>`);
+}
+
+async function doConvertQuote(e, id) {
+  e.preventDefault();
+  const res = await api('convert_quote', id,
+                        document.getElementById('cvPayment').value,
+                        document.getElementById('cvPin').value, null, null);
+  if (!res.ok) { showToast(res.msg,'error'); return; }
+  closeModal(); showToast(res.msg);
+  showReceipt(res.data);
+  renderQuotes();
+}
+
+function printQuote(id) {
+  const q = (window._quotes||[]).find(x=>x.id===id);
+  if (!q) { showToast('Quote not found','error'); return; }
+  const si = storeInfo;
+  const logoOk = si.logo && si.logo.startsWith('data:image/');
+  document.getElementById('receiptContent').innerHTML = `
+    <div class="receipt-header">
+      ${logoOk?`<img src="${si.logo}" class="receipt-logo" alt="">`:''}
+      <strong>${esc(si.name||'DWATREX')}</strong>
+      ${si.address?`<div class="receipt-shop-line">${esc(si.address)}</div>`:''}
+      ${si.phone?`<div class="receipt-shop-line">Tel: ${esc(si.phone)}</div>`:''}
+      <div class="receipt-shop-line" style="margin-top:6px;font-weight:700">QUOTATION #${q.id}</div>
+      <div class="receipt-shop-line">${fmtDate(q.date)}</div>
+      <div class="receipt-shop-line">For: ${esc(q.customer_name||'')}</div>
+    </div>
+    ${(q.items||[]).map(i=>`<div class="receipt-line"><span>${esc(i.name)} x${i.qty}${i.unit&&i.unit!=='each'?' '+esc(i.unit):''}</span><span>${money(i.qty*i.unitPrice)}</span></div>`).join('')}
+    <div class="receipt-divider"></div>
+    <div class="receipt-line"><span>Subtotal</span><span>${money(q.subtotal)}</span></div>
+    ${q.discount>0?`<div class="receipt-line"><span>Discount (${q.discount}%)</span><span>-${money(q.discount_amt)}</span></div>`:''}
+    ${q.tax>0?`<div class="receipt-line"><span>Tax (${q.tax}%)</span><span>${money(q.tax_amt)}</span></div>`:''}
+    <div class="receipt-divider"></div>
+    <div class="receipt-line receipt-total"><span>TOTAL</span><span>${money(q.total)}</span></div>
+    ${q.notes?`<div class="receipt-shop-line" style="margin-top:8px">${esc(q.notes)}</div>`:''}
+    <div class="receipt-footer">This is a quotation, not a receipt. Prices subject to availability.</div>`;
+  document.getElementById('receiptModal').classList.remove('hidden');
+}
+
+// ═══════ HELD (PARKED) SALES ═════════════════════════════
+async function holdCurrentSale() {
+  if (!cart.length) { showToast('Cart is empty','error'); return; }
+  const label = cart[0].name + (cart.length>1?` +${cart.length-1} more`:'');
+  const items = cart.map(c=>({productId:c.productId,name:c.name,qty:c.qty,
+                              unitPrice:c.unitPrice,costPrice:c.costPrice,unit:c.unit||'each'}));
+  const res = await api('hold_sale', JSON.stringify(items),
+                        document.getElementById('cartDiscount')?.value||0,
+                        document.getElementById('cartTax')?.value||0, label);
+  if (!res.ok) { showToast(res.msg,'error'); return; }
+  showToast('Sale held — till is free');
+  cart=[]; renderCart(); refreshHeldCount();
+}
+
+async function refreshHeldCount() {
+  const res = await api('get_held_sales');
+  const n = res.ok ? res.data.length : 0;
+  const b = document.getElementById('heldCount');
+  if (b) { b.textContent = n; b.classList.toggle('hidden', n===0); }
+}
+
+async function openHeldSales() {
+  const res = await api('get_held_sales');
+  const rows = res.ok ? res.data : [];
+  openModal('Held Sales', rows.length ? `
+    <div class="table-scroll"><table class="data-table">
+      <thead><tr><th>Held</th><th>Items</th><th>Description</th><th>Actions</th></tr></thead>
+      <tbody>${rows.map(h=>`<tr>
+        <td>${fmtDate(h.date)}</td><td>${(h.items||[]).length}</td><td>${esc(h.label||'')}</td>
+        <td class="actions">
+          <button class="btn btn-sm btn-primary" onclick="resumeHeld(${h.id})">Resume</button>
+          <button class="btn btn-sm btn-outline" onclick="discardHeld(${h.id})"><span class="material-symbols-outlined" style="font-size:14px">delete</span></button>
+        </td></tr>`).join('')}</tbody>
+    </table></div>`
+    : `<div class="empty-state"><span class="material-symbols-outlined">pause_circle</span><span class="empty-msg">No held sales</span></div>`);
+}
+
+async function resumeHeld(id) {
+  if (cart.length && !confirm('Resuming will replace the current cart. Continue?')) return;
+  const res = await api('resume_held_sale', id);
+  if (!res.ok) { showToast(res.msg,'error'); return; }
+  const prods = (await api('get_all_products')).data || [];
+  cart = (res.data.items||[]).map(i=>{
+    const p = prods.find(x=>x.id===i.productId) || {};
+    return {productId:i.productId, name:i.name, unitPrice:i.unitPrice,
+            originalPrice:p.selling_price ?? i.unitPrice, costPrice:i.costPrice,
+            qty:i.qty, unit:i.unit||p.unit||'each', maxStock:p.stock ?? i.qty};
+  });
+  const d=document.getElementById('cartDiscount'); if(d) d.value=res.data.discount||0;
+  const t=document.getElementById('cartTax'); if(t) t.value=res.data.tax||0;
+  closeModal(); renderCart(); refreshHeldCount(); showToast('Sale resumed');
+}
+
+async function discardHeld(id) {
+  if (!confirm('Discard this held sale?')) return;
+  await api('delete_held_sale', id);
+  openHeldSales(); refreshHeldCount();
+}
+
+// ═══════ SPLIT PAYMENT ═══════════════════════════════════
+let splitLegs = null;
+function openSplitPayment() {
+  if (!cart.length) { showToast('Cart is empty','error'); return; }
+  const total = cartDue();
+  openModal('Split Payment', `
+    <form onsubmit="applySplit(event)">
+      <p style="font-size:0.85rem;margin-bottom:1rem">Total due <strong>${money(total)}</strong>.
+        Split it across two methods — the parts must add up exactly.</p>
+      <div class="form-row">
+        <div class="form-group"><label>First Method</label>
+          <select id="sp1m"><option>Cash</option><option>Mobile Money</option><option>Card</option><option>Bank Transfer</option></select></div>
+        <div class="form-group"><label>Amount</label>
+          <input type="number" step="0.01" min="0" id="sp1a" value="${(total/2).toFixed(2)}" oninput="syncSplit(${total})"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>Second Method</label>
+          <select id="sp2m"><option>Mobile Money</option><option>Cash</option><option>Card</option><option>Bank Transfer</option></select></div>
+        <div class="form-group"><label>Amount</label>
+          <input type="number" step="0.01" min="0" id="sp2a" value="${(total/2).toFixed(2)}" oninput="syncSplit(${total}, true)"></div>
+      </div>
+      <div id="splitStatus" style="font-size:0.8rem;margin-bottom:0.75rem"></div>
+      <button type="submit" class="btn btn-primary btn-block">Use This Split</button>
+    </form>`);
+  syncSplit(total);
+}
+function syncSplit(total, second) {
+  const a1=document.getElementById('sp1a'), a2=document.getElementById('sp2a');
+  if (!a1||!a2) return;
+  // Editing one side auto-fills the other so the parts always reconcile.
+  if (second) a1.value = Math.max(0, total - (parseFloat(a2.value)||0)).toFixed(2);
+  else        a2.value = Math.max(0, total - (parseFloat(a1.value)||0)).toFixed(2);
+  const sum = (parseFloat(a1.value)||0) + (parseFloat(a2.value)||0);
+  const el = document.getElementById('splitStatus');
+  const ok = Math.abs(sum-total) < 0.011;
+  if (el) el.innerHTML = ok
+    ? `<span style="color:#34d399;font-weight:700">Adds up to ${money(sum)} ✓</span>`
+    : `<span style="color:#ff6b6b;font-weight:700">${money(sum)} — must equal ${money(total)}</span>`;
+}
+function applySplit(e) {
+  e.preventDefault();
+  const legs = [
+    {method:document.getElementById('sp1m').value, amount:parseFloat(document.getElementById('sp1a').value)||0},
+    {method:document.getElementById('sp2m').value, amount:parseFloat(document.getElementById('sp2a').value)||0},
+  ].filter(l=>l.amount>0);
+  const sum = legs.reduce((s,l)=>s+l.amount,0);
+  if (Math.abs(sum - cartDue()) > 0.011) { showToast('Split amounts must equal the total','error'); return; }
+  splitLegs = legs;
+  closeModal();
+  showToast(`Split set: ${legs.map(l=>l.method+' '+money(l.amount)).join(' + ')}`);
+}
+
+// ═══════ BARCODE SCAN-TO-ADD + KEYBOARD SHORTCUTS ════════
+async function handleScanInput(e) {
+  // A keyboard-wedge scanner types the code then presses Enter.
+  if (e.key !== 'Enter') return;
+  const code = e.target.value.trim();
+  if (!code) return;
+  const res = await api('find_product_by_code', code);
+  if (res.ok) {
+    addToCart(res.data.id);
+    e.target.value = '';
+    showToast(`Added ${res.data.name}`);
+  } else {
+    // Not an exact code — fall back to filtering the grid by that text.
+    renderPOSProducts();
+    showToast(res.msg, 'error');
+  }
+}
+function initPosShortcuts() {
+  if (window._posKeysBound) return;
+  window._posKeysBound = true;
+  document.addEventListener('keydown', e => {
+    // Only on the POS page, and never while typing in a field.
+    const onPos = !document.getElementById('page-sales')?.classList.contains('hidden')
+                  && currentPage === 'sales';
+    if (!onPos) return;
+    const typing = /^(INPUT|SELECT|TEXTAREA)$/.test(document.activeElement?.tagName||'');
+    if (e.key === 'F9') { e.preventDefault(); completeSale(); }
+    else if (e.key === 'F2') { e.preventDefault(); holdCurrentSale(); }
+    else if (e.key === 'F3') { e.preventDefault(); openHeldSales(); }
+    else if (e.key === 'F4') { e.preventDefault(); document.getElementById('posScan')?.focus(); }
+    else if (e.key === 'Escape' && !typing && cart.length) { clearCart(); }
+  });
+}
+
+// ═══════ ACTIVITY LOG ════════════════════════════════════
+const AUDIT_LABELS = {
+  'auth.login':'Signed in', 'auth.lockout':'Account locked (failed logins)',
+  'sale.void':'Sale voided', 'sale.discount':'Discount applied',
+  'sale.below_cost_approved':'Below-cost sale approved',
+  'stock.adjust':'Stock adjusted', 'product.delete':'Product deleted',
+  'product.cost_updated':'Cost price updated', 'credit.payment':'Credit payment taken',
+  'settings.update':'Settings changed', 'data.backup':'Backup taken',
+  'data.restore':'Database restored',
+};
+function auditDetail(raw) {
+  if (!raw) return '';
+  try {
+    const d = JSON.parse(raw);
+    return Object.entries(d).map(([k,v]) => `${k.replace(/_/g,' ')}: ${v}`).join(' · ');
+  } catch (e) { return String(raw); }
+}
+async function renderAudit() {
+  const from = document.getElementById('auditFrom')?.value || '';
+  const to   = document.getElementById('auditTo')?.value || '';
+  const act  = document.getElementById('auditAction')?.value || '';
+  const res = await api('get_audit_log', from, to, act, 500);
+  if (!res.ok) { showToast(res.msg,'error'); return; }
+  const rows = res.data;
+  // Populate the action filter once, from what actually exists.
+  const sel = document.getElementById('auditAction');
+  if (sel && sel.options.length <= 1) {
+    const seen = [...new Set(rows.map(r=>r.action))].sort();
+    seen.forEach(a => sel.insertAdjacentHTML('beforeend',
+      `<option value="${esc(a)}">${esc(AUDIT_LABELS[a]||a)}</option>`));
+  }
+  document.querySelector('#auditTable tbody').innerHTML = rows.map(r=>`<tr>
+      <td>${fmtDate(r.date)}</td>
+      <td>${esc(r.user_name||'—')}</td>
+      <td>${esc(r.role||'')}</td>
+      <td>${esc(AUDIT_LABELS[r.action]||r.action)}</td>
+      <td>${esc(r.entity||'')}${r.entity_id?' #'+esc(r.entity_id):''}</td>
+      <td style="font-size:0.75rem;color:var(--on-surface-variant)">${esc(auditDetail(r.detail))}</td>
+    </tr>`).join('') || emptyRow(6,'history_edu','No activity recorded for this period');
+}
+function exportAudit() {
+  const rows = [...document.querySelectorAll('#auditTable tbody tr')]
+    .map(tr => [...tr.children].map(td => `"${td.textContent.replace(/"/g,'""')}"`).join(','));
+  if (!rows.length) { showToast('Nothing to export','error'); return; }
+  downloadCSV('When,User,Role,Action,Item,Details\n' + rows.join('\n'), 'activity-log.csv');
+}
+
+// ═══════ TAX COMPONENTS ══════════════════════════════════
+let taxComponents = [];
+function renderTaxComponents() {
+  const box = document.getElementById('taxComponents');
+  if (!box) return;
+  box.innerHTML = taxComponents.map((c,i)=>`
+    <div class="form-row" style="gap:0.4rem;margin-bottom:0.35rem;align-items:center">
+      <input type="text" value="${esc(c.name)}" placeholder="Name (e.g. VAT)"
+             onchange="taxComponents[${i}].name=this.value">
+      <input type="number" step="0.01" min="0" max="100" value="${c.rate}" style="max-width:90px"
+             onchange="taxComponents[${i}].rate=parseFloat(this.value)||0; renderTaxComponents()">
+      <button type="button" class="btn btn-sm btn-outline" aria-label="Remove ${esc(c.name)}"
+              onclick="taxComponents.splice(${i},1); renderTaxComponents()"><span class="material-symbols-outlined" style="font-size:14px">close</span></button>
+    </div>`).join('') ||
+    '<p style="font-size:0.78rem;color:var(--outline)">No tax charged.</p>';
+  const total = taxComponents.reduce((s,c)=>s+(c.rate||0),0);
+  const el = document.getElementById('taxTotalRate');
+  if (el) el.textContent = total.toFixed(2) + '%';
+  const hidden = document.getElementById('settingTaxRate');
+  if (hidden) hidden.value = total;
+}
+function addTaxComponent() {
+  taxComponents.push({name:'', rate:0});
+  renderTaxComponents();
+}
+async function loadTaxComponents() {
+  const res = await api('get_tax_config');
+  taxComponents = (res.ok && res.data.components) ? res.data.components : [];
+  renderTaxComponents();
+}
+
+// ═══════ RECURRING EXPENSES ══════════════════════════════
+async function openRecurringModal() {
+  const res = await api('get_recurring_expenses');
+  const rows = res.ok ? res.data : [];
+  openModal('Recurring Monthly Expenses', `
+    <p style="font-size:0.8rem;color:var(--on-surface-variant);margin-bottom:1rem">
+      Fixed costs like rent and salaries post themselves each month, so your net profit
+      is never wrong because someone forgot to enter them.
+    </p>
+    <div class="table-scroll" style="max-height:220px;margin-bottom:1rem"><table class="data-table">
+      <thead><tr><th>Category</th><th>Description</th><th>Amount</th><th>Day</th><th>Active</th><th></th></tr></thead>
+      <tbody>${rows.map(r=>`<tr>
+        <td>${esc(r.category||'')}</td><td>${esc(r.description||'')}</td>
+        <td>${money(r.amount)}</td><td>${r.day_of_month}</td>
+        <td>${r.active?'<span class="badge badge-success">Yes</span>':'<span class="badge">No</span>'}</td>
+        <td><button class="btn btn-sm btn-outline" onclick="removeRecurring(${r.id})" aria-label="Remove"><span class="material-symbols-outlined" style="font-size:14px">delete</span></button></td>
+      </tr>`).join('')||emptyRow(6,'event_repeat','None set up yet')}</tbody>
+    </table></div>
+    <form onsubmit="saveRecurring(event)">
+      <div class="form-row">
+        <div class="form-group"><label>Category *</label>
+          <select id="rcCategory">${EXPENSE_CATEGORIES.map(c=>`<option>${c}</option>`).join('')}</select></div>
+        <div class="form-group"><label>Description *</label>
+          <input type="text" id="rcDesc" placeholder="e.g. Shop rent" required></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>Amount *</label>
+          <input type="number" step="0.01" min="0.01" id="rcAmount" required></div>
+        <div class="form-group"><label>Day of month</label>
+          <input type="number" min="1" max="28" id="rcDay" value="1"></div>
+        <div class="form-group"><label>Method</label>
+          <select id="rcPayment"><option>Cash</option><option>Bank Transfer</option><option>Mobile Money</option></select></div>
+      </div>
+      <button type="submit" class="btn btn-primary btn-block">Add Recurring Expense</button>
+    </form>`);
+}
+async function saveRecurring(e) {
+  e.preventDefault();
+  const res = await api('save_recurring_expense', null,
+    document.getElementById('rcCategory').value,
+    document.getElementById('rcDesc').value,
+    document.getElementById('rcAmount').value,
+    document.getElementById('rcPayment').value,
+    document.getElementById('rcDay').value, 1);
+  if (!res.ok) { showToast(res.msg,'error'); return; }
+  showToast(res.msg); openRecurringModal();
+}
+async function removeRecurring(id) {
+  if (!confirm('Remove this recurring expense?')) return;
+  await api('delete_recurring_expense', id);
+  openRecurringModal();
+}
+
+// ═══════ BACKUP & RESTORE ════════════════════════════════
+async function loadBackupInfo() {
+  const res = await api('get_backup_info');
+  const el = document.getElementById('backupInfo');
+  if (!el || !res.ok) return;
+  const d = res.data;
+  el.innerHTML = `
+    <div><strong>Database size:</strong> ${d.dbSizeKb.toLocaleString()} KB</div>
+    <div><strong>Automatic backups:</strong> ${d.autoBackups}${d.lastAuto?` (latest ${esc(d.lastAuto)})`:''}</div>
+    <div style="word-break:break-all"><strong>Location:</strong> ${esc(d.folder)}</div>`;
+}
+async function doBackup() {
+  showToast('Preparing backup…');
+  const res = await api('backup_database', '');
+  if (!res.ok) { showToast(res.msg,'error'); return; }
+  showToast('Backup saved');
+  loadBackupInfo();
+}
+async function doRestore() {
+  if (!confirm('Restoring replaces ALL current data with the contents of the backup file.\n\n'
+             + 'A safety copy of the current database is made first, and you will need to sign in again.\n\n'
+             + 'Continue?')) return;
+  const res = await api('restore_database', '');
+  if (!res.ok) { showToast(res.msg,'error'); return; }
+  alert('Database restored. Dwatrex will now return to the sign-in screen.');
+  location.reload();
+}
+
+// ═══════ STOCK ADJUSTMENT ════════════════════════════════
+const ADJUST_REASONS = ['Count correction','Damage','Theft/Loss','Expiry','Supplier shortage','Found stock','Other'];
+async function openAdjustModal(productId) {
+  const res = await api('get_all_products');
+  const prods = res.ok ? res.data : [];
+  const p = prods.find(x=>x.id===productId);
+  const opts = prods.map(x=>`<option value="${x.id}" ${x.id===productId?'selected':''}>${esc(x.name)} (${esc(x.sku)}) — ${x.stock} in stock</option>`).join('');
+  openModal('Adjust Stock', `
+    <form onsubmit="saveAdjustment(event)">
+      <p style="font-size:0.8rem;color:var(--on-surface-variant);margin-bottom:1rem">
+        Use this after a stock count, or when goods are damaged or missing. It records the reason —
+        never use a fake sale or purchase to correct stock.
+      </p>
+      <div class="form-group"><label>Product *</label>
+        <select id="adjProduct" required onchange="onAdjustProductChange()">${opts}</select></div>
+      <div class="form-row">
+        <div class="form-group"><label>Counted Quantity *</label>
+          <input type="number" step="0.01" min="0" id="adjQty" value="${p?p.stock:0}" required oninput="onAdjustProductChange(true)"></div>
+        <div class="form-group"><label>Date *</label>
+          <input type="date" id="adjDate" value="${fmt(new Date())}" max="${fmt(new Date())}" required></div>
+      </div>
+      <div id="adjDelta" style="font-size:0.8rem;margin-bottom:0.75rem"></div>
+      <div class="form-group"><label>Reason *</label>
+        <select id="adjReason" required>${ADJUST_REASONS.map(r=>`<option>${r}</option>`).join('')}</select></div>
+      <div class="form-group"><label>Note</label><input type="text" id="adjNote" placeholder="Optional detail"></div>
+      <button type="submit" class="btn btn-primary btn-block">Record Adjustment</button>
+    </form>`);
+  window._adjProducts = prods;
+  onAdjustProductChange();
+}
+function onAdjustProductChange(keepQty) {
+  const prods = window._adjProducts || [];
+  const id = parseInt(document.getElementById('adjProduct')?.value);
+  const p = prods.find(x=>x.id===id);
+  const qtyEl = document.getElementById('adjQty');
+  if (!p || !qtyEl) return;
+  if (!keepQty) qtyEl.value = p.stock;
+  const now = parseFloat(qtyEl.value||0) || 0;
+  const delta = now - p.stock;
+  const el = document.getElementById('adjDelta');
+  if (el) el.innerHTML = Math.abs(delta) < 0.0001
+    ? `<span style="color:var(--outline)">System stock is ${p.stock} — no change.</span>`
+    : `<span style="color:${delta<0?'#ff6b6b':'#34d399'};font-weight:700">
+         System ${p.stock} → counted ${now} (${delta>0?'+':''}${delta.toFixed(2)})</span>`;
+}
+async function saveAdjustment(e) {
+  e.preventDefault();
+  const res = await api('adjust_stock',
+    parseInt(document.getElementById('adjProduct').value),
+    document.getElementById('adjQty').value,
+    document.getElementById('adjReason').value,
+    document.getElementById('adjNote').value,
+    document.getElementById('adjDate').value);
+  if (!res.ok) { showToast(res.msg,'error'); return; }
+  closeModal(); showToast(res.msg);
+  renderInventory(); renderProducts();
+}
+
+// ═══════ VOID SALE ═══════════════════════════════════════
+async function voidSale(saleId) {
+  const reason = prompt ? null : null;   // pywebview prompt() is unreliable — use a modal
+  openModal(`Void Sale #${saleId}`, `
+    <form onsubmit="confirmVoid(event, ${saleId})">
+      <p style="font-size:0.85rem;margin-bottom:1rem;color:#ff6b6b">
+        <span class="material-symbols-outlined" style="font-size:16px;vertical-align:middle">warning</span>
+        This reverses the whole sale: every item goes back into stock and any credit balance is cleared.
+        The sale is kept on record, marked as voided.
+      </p>
+      <div class="form-group"><label>Reason *</label>
+        <input type="text" id="voidReason" placeholder="e.g. rung up twice" required></div>
+      <div class="form-group"><label>Manager PIN</label>
+        <input type="password" id="voidPin" placeholder="Required if a PIN is set" autocomplete="off"></div>
+      <button type="submit" class="btn btn-primary btn-block">Void This Sale</button>
+    </form>`);
+}
+async function confirmVoid(e, saleId) {
+  e.preventDefault();
+  const res = await api('void_sale', saleId,
+    document.getElementById('voidReason').value,
+    document.getElementById('voidPin').value);
+  if (!res.ok) { showToast(res.msg,'error'); return; }
+  closeModal(); showToast(res.msg);
+  renderSalesHistory(); renderPOSProducts();
+}
+
+// ═══════ CASH HANDLING (tendered / change due) ═══════════
+function cartDue() {
+  const sub = cart.reduce((s,i)=>s+i.qty*i.unitPrice,0);
+  const disc = parseFloat(document.getElementById('cartDiscount')?.value||0);
+  const tax  = parseFloat(document.getElementById('cartTax')?.value||0);
+  const da = sub*disc/100;
+  return sub - da + (sub-da)*tax/100;
+}
+function updateChangeDue() {
+  const due = cartDue();
+  const t = parseFloat(document.getElementById('cashTendered')?.value||0) || 0;
+  const row = document.getElementById('changeRow');
+  const out = document.getElementById('changeDue');
+  if (!row || !out) return;
+  if (!t) { row.classList.add('hidden'); return; }
+  row.classList.remove('hidden');
+  const change = t - due;
+  out.textContent = money(Math.abs(change));
+  row.classList.toggle('short', change < -0.001);
+  out.previousElementSibling.textContent = change < -0.001 ? 'Still Owing' : 'Change Due';
+}
+// Suggest realistic notes the customer is likely to hand over.
+function renderQuickTender() {
+  const box = document.getElementById('quickTender');
+  if (!box) return;
+  const due = cartDue();
+  if (due <= 0) { box.innerHTML = ''; return; }
+  const notes = [1,2,5,10,20,50,100,200];
+  const opts = new Set([Math.ceil(due)]);
+  notes.forEach(n => { if (n >= due) opts.add(n); });
+  // Next round 10/50/100 above the total.
+  [10,50,100].forEach(step => opts.add(Math.ceil(due/step)*step));
+  const list = [...opts].filter(v=>v>=due).sort((a,b)=>a-b).slice(0,4);
+  box.innerHTML = list.map(v=>`<button type="button" class="tender-chip" onclick="setTender(${v})">${money(v)}</button>`).join('')
+                + `<button type="button" class="tender-chip" onclick="setTender(${due.toFixed(2)})">Exact</button>`;
+}
+function setTender(v) {
+  const el = document.getElementById('cashTendered');
+  if (el) { el.value = Number(v).toFixed(2); updateChangeDue(); }
+}
+function resetTenderFields() {
+  const el = document.getElementById('cashTendered'); if (el) el.value = '';
+  document.getElementById('changeRow')?.classList.add('hidden');
+}
+
 // ═══════ CREDIT / RECEIVABLES ════════════════════════════
 function onPaymentMethodChange() {
   const isCredit = document.getElementById('paymentMethod')?.value === 'Credit';
   const el = document.getElementById('creditFields');
   if (el) el.classList.toggle('hidden', !isCredit);
+  // Tendering applies to cash-like payments, and to a credit deposit.
+  const tf = document.getElementById('tenderFields');
+  if (tf) tf.classList.toggle('hidden', isCredit);
   if (!isCredit) resetCreditFields();
+  renderQuickTender(); updateChangeDue();
 }
 function resetCreditFields() {
   ['creditCustomerName','creditCustomerPhone'].forEach(id=>{ const e=document.getElementById(id); if(e) e.value=''; });
@@ -740,7 +1421,69 @@ function resetCreditFields() {
   const pm=document.getElementById('paymentMethod'); if(pm && pm.value==='Credit') pm.value='Cash';
 }
 
+// Build a WhatsApp link so chasing a debt is one tap. wa.me needs digits only,
+// and Ghana numbers are stored locally (024…) so add the country code.
+function waLink(phone, text) {
+  let d = String(phone||'').replace(/\D/g,'');
+  if (!d) return '';
+  if (d.startsWith('0')) d = '233' + d.slice(1);
+  else if (!d.startsWith('233') && d.length <= 9) d = '233' + d;
+  return `https://wa.me/${d}?text=${encodeURIComponent(text)}`;
+}
+
+async function renderCreditAgeing() {
+  const res = await api('get_credit_by_customer');
+  if (!res.ok) { showToast(res.msg,'error'); return; }
+  const { customers, totals } = res.data;
+  document.getElementById('creditOutstanding').textContent = money(totals.outstanding);
+  document.getElementById('creditCustomers').textContent = totals.customers;
+  const cell = (v, warn) => v > 0.001
+    ? `<td style="${warn?'color:#ff6b6b;font-weight:700':''}">${money(v)}</td>` : '<td>—</td>';
+  document.querySelector('#creditAgeingTable tbody').innerHTML = customers.map(c=>{
+    const msg = `Hello ${c.customer}, a friendly reminder that your balance with ${storeInfo.name||'us'} is ${money(c.balance)}. Thank you.`;
+    const wa = waLink(c.phone, msg);
+    return `<tr>
+      <td><strong>${esc(c.customer)}</strong>${c.oldestDays>90?' <span class="badge badge-danger">Overdue</span>':''}</td>
+      <td>${c.phone?`<a href="tel:${esc(c.phone)}">${esc(c.phone)}</a>`:'—'}</td>
+      <td>${c.sales}</td>
+      ${cell(c.current)}${cell(c.d30)}${cell(c.d60,true)}${cell(c.d90,true)}
+      <td style="font-weight:800">${money(c.balance)}</td>
+      <td class="actions">
+        <button class="btn btn-sm btn-outline" onclick="openCustomerCredit('${esc(c.customer).replace(/'/g,"\\'")}')" aria-label="View ${esc(c.customer)}">Details</button>
+        ${wa?`<a class="btn btn-sm btn-primary" href="${wa}" target="_blank" rel="noopener" aria-label="WhatsApp reminder"><span class="material-symbols-outlined" style="font-size:14px">chat</span></a>`:''}
+      </td></tr>`;
+  }).join('') || emptyRow(9,'handshake','Nobody owes you anything — nice');
+}
+
+async function openCustomerCredit(name) {
+  const res = await api('get_customer_credit_detail', name);
+  if (!res.ok) { showToast(res.msg,'error'); return; }
+  const d = res.data;
+  openModal(`${name} — owes ${money(d.balance)}`, `
+    <h4 style="font-size:0.8rem;margin-bottom:0.5rem">Credit sales</h4>
+    <div class="table-scroll" style="max-height:200px"><table class="data-table">
+      <thead><tr><th>Sale</th><th>Date</th><th>Total</th><th>Paid</th><th>Balance</th><th></th></tr></thead>
+      <tbody>${d.sales.map(s=>`<tr><td>#${s.id}</td><td>${fmtDate(s.date)}</td>
+        <td>${money(s.total)}</td><td>${money(s.amount_paid||0)}</td>
+        <td style="${(s.balance||0)>0?'color:#ff6b6b;font-weight:700':''}">${money(s.balance||0)}</td>
+        <td>${(s.balance||0)>0?`<button class="btn btn-sm btn-primary" onclick="closeModal();openCreditPaymentModal(${s.id})">Pay</button>`:''}</td>
+        </tr>`).join('')||emptyRow(6,'receipt','No credit sales')}</tbody>
+    </table></div>
+    <h4 style="font-size:0.8rem;margin:1rem 0 0.5rem">Payment history</h4>
+    <div class="table-scroll" style="max-height:160px"><table class="data-table">
+      <thead><tr><th>Date</th><th>Amount</th><th>Method</th><th>Taken by</th></tr></thead>
+      <tbody>${d.payments.map(p=>`<tr><td>${fmtDate(p.date)}</td><td>${money(p.amount)}</td>
+        <td>${esc(p.method||'')}</td><td>${esc(p.taken_by||'')}</td></tr>`).join('')
+        ||emptyRow(4,'payments','No payments yet')}</tbody>
+    </table></div>`);
+}
+
 async function renderCredit() {
+  const view = document.getElementById('creditView')?.value || 'customers';
+  document.getElementById('creditAgeingCard')?.classList.toggle('hidden', view!=='customers');
+  document.getElementById('creditSalesCard')?.classList.toggle('hidden', view==='customers');
+  document.getElementById('creditStatusFilter')?.classList.toggle('hidden', view==='customers');
+  if (view === 'customers') return renderCreditAgeing();
   const status = document.getElementById('creditStatusFilter')?.value || 'outstanding';
   const res = await api('get_credit_sales', status);
   if (!res.ok) { showToast(res.msg,'error'); return; }
@@ -825,7 +1568,11 @@ async function renderSalesHistory() {
     <tr><td>#${s.id}</td><td>${fmtDate(s.date)}</td><td>${(s.items||[]).length}</td>
     <td>${money(s.subtotal)}</td><td>${s.discount}%</td><td>${s.tax}%</td>
     <td><strong>${money(s.total)}</strong></td><td>${esc(s.payment)}</td>
-    <td><button class="btn btn-sm btn-outline" aria-label="View receipt" onclick="showReceiptById(${s.id})"><span class="material-symbols-outlined" style="font-size:14px">receipt</span></button></td></tr>`).join('')||emptyRow(9,'point_of_sale','No sales in this range');
+    <td class="actions"><button class="btn btn-sm btn-outline" aria-label="View receipt" onclick="showReceiptById(${s.id})"><span class="material-symbols-outlined" style="font-size:14px">receipt</span></button>
+    ${s.voided
+      ? '<span class="badge badge-danger" title="'+esc(s.void_reason||'')+'">Voided</span>'
+      : `<button class="btn btn-sm btn-outline" aria-label="Void sale ${s.id}" title="Void this sale" onclick="voidSale(${s.id})"><span class="material-symbols-outlined" style="font-size:14px">block</span></button>`}
+    </td></tr>`).join('')||emptyRow(9,'point_of_sale','No sales in this range');
   cachedSales = res.data;
 }
 
@@ -1553,6 +2300,10 @@ async function importProducts() {
 }
 
 async function downloadCSV(content, filename) {
+  // Excel on Windows assumes the system codepage unless the file starts with a
+  // UTF-8 byte-order mark — without it "GH₵" opens as mojibake.
+  const BOM = '﻿';
+  if (!content.startsWith(BOM)) content = BOM + content;
   // In the desktop app, save through the native dialog (blob downloads don't
   // work inside the webview). Fall back to a blob download in a plain browser.
   if (window.pywebview && window.pywebview.api && window.pywebview.api.save_text_file) {
@@ -1561,7 +2312,7 @@ async function downloadCSV(content, filename) {
     else showToast(res.msg || 'Could not save file', 'error');
     return;
   }
-  const blob = new Blob([content], { type: 'text/csv' });
+  const blob = new Blob([content], { type: 'text/csv;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url; a.download = filename;
@@ -1615,6 +2366,7 @@ async function saveSettings() {
   const newPin = (document.getElementById('settingBelowCostPin')?.value || '').trim();
   if (clearPin) s.below_cost_pin = '__clear__';
   else if (newPin) s.below_cost_pin = newPin;   // blank -> key omitted, PIN kept
+  await api('save_tax_components', JSON.stringify(taxComponents.filter(c=>c.name.trim())));
   const res = await api('save_settings',JSON.stringify(s));
   if (!res.ok) { showToast(res.msg, 'error'); return; }
   currencySymbol = s.currency;          // take effect immediately, app-wide

@@ -240,8 +240,17 @@ input, select, textarea, button { font-family: inherit; }
   background: var(--outline); border-radius: 3px; opacity: 0.4;
 }
 .sidebar-nav::-webkit-scrollbar-thumb:hover { background: var(--on-surface-variant); }
-/* Header, CTA and footer must keep their size while the nav absorbs the squeeze. */
+/* Header, CTA and footer must keep their size while the nav absorbs the squeeze.
+   Sign Out lives in the footer, so it must never be pushed off or hidden. */
 .sidebar-header, .sidebar-cta, .sidebar-footer { flex-shrink: 0; }
+/* Fade the bottom edge of the nav so it's visibly scrollable when clipped. */
+.sidebar-nav-wrap { position: relative; flex: 1 1 auto; min-height: 0; display: flex; }
+.sidebar-nav-wrap::after {
+  content: ''; position: absolute; left: 0; right: 6px; bottom: 0; height: 22px;
+  background: linear-gradient(to bottom, transparent, var(--bg));
+  pointer-events: none; opacity: 0; transition: opacity 0.2s;
+}
+.sidebar-nav-wrap.can-scroll::after { opacity: 1; }
 .nav-item {
   display: flex; align-items: center; gap: 0.75rem; padding: 0.7rem 1.5rem;
   color: var(--on-surface-variant); opacity: 0.7; transition: all 0.15s; font-size: 0.85rem;
@@ -457,6 +466,46 @@ input, select, textarea, button { font-family: inherit; }
   display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 0.75rem;
   max-height: 55vh; overflow-y: auto; padding-right: 0.5rem;
 }
+
+/* ═══════ POS PRODUCT LIST ═══════════════════════════════
+   Dense rows beat tiles for a large catalogue of similarly-named SKUs:
+   aligned columns make "XBZ 10W" vs "XBZ 15W" instantly distinguishable. */
+.pos-count {
+  font-size: 0.72rem; color: var(--on-surface-variant); margin-bottom: 0.4rem;
+}
+.pos-list {
+  display: flex; flex-direction: column; gap: 2px;
+  max-height: 58vh; overflow-y: auto; padding-right: 0.35rem;
+  scrollbar-width: thin; scrollbar-color: var(--outline) transparent;
+}
+.pos-list::-webkit-scrollbar { width: 6px; }
+.pos-list::-webkit-scrollbar-thumb { background: var(--outline); border-radius: 3px; }
+.pos-row {
+  display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 0.75rem;
+  padding: 0.5rem 0.75rem; border-radius: var(--radius-sm);
+  background: var(--surface-container-high); cursor: pointer;
+  border: 1px solid transparent; transition: background 0.12s, border-color 0.12s;
+}
+.pos-row:hover, .pos-row:focus-visible {
+  background: var(--surface-container-highest); border-color: var(--tertiary); outline: none;
+}
+.pos-row-main { display: flex; flex-direction: column; min-width: 0; }
+.pos-row-name {
+  font-size: 0.82rem; font-weight: 600; color: var(--on-surface);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.pos-row-sku { font-size: 0.65rem; color: var(--outline); }
+.pos-row-stock {
+  font-size: 0.7rem; color: var(--on-surface-variant); min-width: 74px; text-align: right;
+}
+.pos-row-price {
+  font-family: 'Manrope'; font-weight: 800; font-size: 0.9rem; color: var(--tertiary);
+  min-width: 82px; text-align: right;
+}
+/* Visible but unsellable — the cashier can still see the item exists. */
+.pos-row.out-of-stock { opacity: 0.45; cursor: not-allowed; }
+.pos-row.out-of-stock:hover { background: var(--surface-container-high); border-color: transparent; }
+.pos-row.out-of-stock .pos-row-stock { color: #ff6b6b; font-weight: 700; }
 .pos-product-card {
   background: var(--surface-container-high); border-radius: var(--radius-lg);
   padding: 1.25rem; cursor: pointer; transition: all 0.2s; text-align: center;
@@ -477,7 +526,28 @@ input, select, textarea, button { font-family: inherit; }
   border-left: 1px solid rgba(255,183,125,0.05);
 }
 .pos-cart h3 { font-family: 'Manrope'; font-size: 1rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 1rem; }
-.cart-items { flex: 1; overflow-y: auto; margin-bottom: 1rem; min-height: 80px; }
+/* The item list is the part that should grow, and it must always show several
+   rows — the payment chrome below it (tender, change, split/hold buttons) is
+   what squeezed it to a single row before. */
+.cart-items {
+  flex: 1 1 auto; overflow-y: auto; margin-bottom: 0.75rem;
+  min-height: 190px;
+  scrollbar-width: thin; scrollbar-color: var(--outline) transparent;
+}
+.cart-items::-webkit-scrollbar { width: 6px; }
+.cart-items::-webkit-scrollbar-thumb { background: var(--outline); border-radius: 3px; }
+/* Cart summary rows stay put; if the whole panel still overflows on a short
+   window, the panel itself scrolls so nothing is unreachable. */
+.pos-cart { overflow-y: auto; }
+.pos-cart .cart-summary, .pos-cart .cart-buttons { flex-shrink: 0; }
+/* Shorter windows: give the list less floor rather than hiding it entirely. */
+@media (max-height: 800px) {
+  .cart-items { min-height: 140px; }
+  .pos-cart { padding: 1rem; }
+}
+@media (max-height: 680px) {
+  .cart-items { min-height: 110px; }
+}
 .cart-item {
   display: flex; align-items: center; gap: 0.5rem; padding: 0.6rem 0;
   font-size: 0.8rem;
@@ -722,6 +792,49 @@ input, select, textarea, button { font-family: inherit; }
   border-radius: var(--radius-sm); font-size: 0.8rem; font-family: 'Manrope'; font-weight: 700;
 }
 .cart-item .item-price:focus { outline: 1px solid var(--tertiary); }
+/* ═══════ PAGINATION ═════════════════════════════════════ */
+.pager {
+  display: flex; align-items: center; gap: 0.6rem; justify-content: flex-end;
+  padding: 0.75rem 0 0.25rem; flex-wrap: wrap;
+}
+.pager .pager-info { font-size: 0.75rem; color: var(--on-surface-variant); }
+.pager .btn[disabled] { opacity: 0.4; pointer-events: none; }
+
+/* ═══════ POS: SCAN, UNITS, SECONDARY ACTIONS ════════════ */
+.pos-scan {
+  border: 1px solid var(--tertiary) !important;
+  background: var(--surface-container-highest);
+}
+.pos-scan::placeholder { font-size: 0.78rem; }
+.cart-secondary-actions {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; margin: 6px 0;
+}
+.cart-secondary-actions .btn { padding: 0.4rem 0.2rem; font-size: 0.68rem; }
+.held-badge {
+  background: var(--tertiary); color: var(--on-tertiary, #1a1a1a);
+  border-radius: 8px; padding: 0 5px; font-size: 0.62rem; font-weight: 800; margin-left: 3px;
+}
+.cart-item .item-unit {
+  font-size: 0.6rem; color: var(--outline); margin-left: 2px; min-width: 26px;
+}
+.product-price .per-unit { font-size: 0.62rem; color: var(--outline); font-weight: 500; }
+
+/* ═══════ CASH TENDERED / CHANGE DUE ═════════════════════ */
+.quick-tender { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.tender-chip {
+  background: var(--surface-container-highest); border: 1px solid transparent;
+  color: var(--on-surface-variant); border-radius: var(--radius-sm);
+  padding: 0.25rem 0.5rem; font-size: 0.7rem; font-weight: 700; cursor: pointer;
+  font-family: inherit;
+}
+.tender-chip:hover { border-color: var(--tertiary); color: var(--on-surface); }
+.cart-row.change-row {
+  font-weight: 800; color: #34d399; border-top: 1px dashed rgba(52,211,153,0.4);
+  margin-top: 4px; padding-top: 6px;
+}
+.cart-row.change-row.short { color: #ff6b6b; border-top-color: rgba(255,107,107,0.4); }
+.badge-danger { background: rgba(255,107,107,0.15); color: #ff6b6b; }
+
 /* Loss warning: price at 0 or below cost. */
 .cart-item .item-price.price-warn {
   color: #ff6b6b; background: rgba(255,107,107,0.12); outline: 1px solid rgba(255,107,107,0.5);
@@ -779,7 +892,17 @@ input, select, textarea, button { font-family: inherit; }
   .sidebar-header .logo-text p { display: none; }   /* drop the tagline */
   .nav-item { padding: 0.4rem 1.25rem; gap: 0.6rem; }
   .nav-item .material-symbols-outlined { font-size: 18px; }
-  .sidebar-footer { display: none; }                /* recover the last ~60px */
+  /* The footer holds Sign Out, so it is never hidden — only compacted. The
+     scrollable nav above absorbs the squeeze instead. */
+  .sidebar-footer { margin-top: 0.4rem; padding-top: 0.4rem; }
+  .sidebar-footer a { font-size: 0.75rem; padding: 0.15rem 0; }
+  .sidebar-cta { margin-top: 0.25rem; }
+}
+/* Very short windows: hide only the non-essential Support link, never Sign Out. */
+@media (max-height: 600px) {
+  .sidebar-footer a:not(:first-child) { display: none; }
+  .sidebar-header .logo-text h1 { font-size: 0.9rem; }
+  .sidebar-header .logo-box { width: 28px; height: 28px; }
 }
 /* ═══════ FOCUS VISIBILITY (keyboard a11y) ═══════════════ */
 .btn:focus-visible, .nav-item:focus-visible, .topbar-tabs a:focus-visible,

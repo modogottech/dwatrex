@@ -22,6 +22,13 @@ def main():
     # Initialise the database (creates + seeds on first run)
     database.init_db()
 
+    # Take a dated backup once per day, keeping the newest 10. A failure here
+    # must never stop the app from opening.
+    try:
+        database.auto_backup(keep=10)
+    except Exception as e:                      # pragma: no cover
+        print(f"[warn] automatic backup skipped: {e}")
+
     api = StoreHubAPI()
 
     window = webview.create_window(
