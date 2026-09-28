@@ -2,6 +2,7 @@
 Dwatrex Database Layer — SQLite with full schema and seed data.
 """
 import sqlite3
+import pathlib
 import os
 import sys
 import json
@@ -74,6 +75,16 @@ def get_conn():
     return conn
 
 
+def _read_only_uri(path):
+    """Build a SQLite read-only URI that is valid on Windows as well as Unix.
+
+    A Windows path (C:\\Users\\...\\backup.db) cannot be dropped into a URI by
+    string interpolation: backslashes are escape characters there, and spaces
+    and '#' need percent-encoding. pathlib's as_uri() handles all of that.
+    """
+    return pathlib.Path(path).resolve().as_uri() + "?mode=ro"
+
+
 def backup_to(dest_path):
     """Copy the live database to `dest_path` using SQLite's own backup API.
 
@@ -101,7 +112,7 @@ def restore_from(src_path):
     if not os.path.exists(src_path):
         raise ValueError("Backup file not found")
     # Validate: must be SQLite and contain the tables we expect.
-    probe = sqlite3.connect(f"file:{src_path}?mode=ro", uri=True)
+    probe = sqlite3.connect(_read_only_uri(src_path), uri=True)
     try:
         names = {r[0] for r in probe.execute(
             "SELECT name FROM sqlite_master WHERE type='table'")}
@@ -121,7 +132,7 @@ def restore_from(src_path):
         backup_to(safety)
     # Write the backup's contents into the live file in place, so any open
     # handles keep pointing at a valid database.
-    src = sqlite3.connect(f"file:{src_path}?mode=ro", uri=True)
+    src = sqlite3.connect(_read_only_uri(src_path), uri=True)
     try:
         dest = sqlite3.connect(DB_PATH)
         try:
